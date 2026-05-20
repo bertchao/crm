@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>老客維繫 CRM</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:system-ui,-apple-system,sans-serif;color:#333;background:#f5f5f5;min-height:100vh;}
@@ -125,15 +126,20 @@ async function dbSet(k, v) {
   localStorage.setItem("crm:"+k, JSON.stringify(v));
 }
 
+// ── 登入系統設定（Google Identity Services） ─────────────────────────
+const CLIENT_ID = '115891115137-cmlptjq9hskf8tngo8lqv48qpknq6fbk.apps.googleusercontent.com';
+const ALLOWED_DOMAIN = 'trueact.com.tw';
+const ADMIN_EMAILS = ['bert.c@trueact.com.tw']; // admin 信箱白名單
+
 // ── State ────────────────────────────────────────────────────────────
 let S = {
   custs:[], calls:{}, rules:{amt:5000,cnt:3},
-  staffList:["小美","小華","阿志","小雯"],  // 可自訂
+  staffList:["小美","小華","阿志","小雯"],
   addStaffInput:"",
-  // ── 權限系統 ──
+  // ── 登入資訊（從 Google JWT 解出） ──
+  email: "",
+  picture: "",
   userRole: "",      // "admin" | "staff"
-  authView: "login", // "login" | "pending" | "app"
-  loginForm: { username:"", password:"" },
   authError: "",
   tab:"import", q:"", fSrc:"", fGrade:"", fStatus:"", fAmtMin:"", fAmtMax:"", pg:0,
   cq:"", fcSt:"", fcStf:"",
@@ -171,75 +177,93 @@ async function savCustomers() { await dbSet("customers", S.custs); sync("客戶�
 async function saveImportedPayIds() { await dbSet("importedPayIds", [...S.importedPayIds]); }
 async function saveStaffList() { await dbSet("staffList", S.staffList); STAFF = S.staffList; }
 
-// ── 帳號管理 ──────────────────────────────────────────────────────────
-async function getAccounts() {
-  const d = await dbGet("accounts");
-  return d || {};
-}
-async function saveAccounts(accounts) {
-  await dbSet("accounts", accounts);
-}
-
-// 密碼 hash：PBKDF2-SHA256 × 100,000 iterations，每帳號獨立 salt
-async function hashPwd(pwd, salt) {
-  const enc = new TextEncoder();
-  const km = await crypto.subtle.importKey("raw", enc.encode(pwd), {name:"PBKDF2"}, false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    {name:"PBKDF2", salt:enc.encode(salt), iterations:100000, hash:"SHA-256"},
-    km, 256
-  );
-  return Array.from(new Uint8Array(bits)).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
-function genSalt() {
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  return Array.from(arr).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
-// 舊版 hash 保留做相容：登入成功後自動升級到新格式
-function legacyHashPwd(pwd) {
-  let h = 0;
-  for (let i=0; i<pwd.length; i++) h = (Math.imul(31,h) + pwd.charCodeAt(i)) | 0;
-  return "h" + Math.abs(h).toString(36);
+// ── Google Identity Services 登入 ────────────────────────────────────
+function parseJwtPayload(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+    return JSON.parse(json);
+  } catch (e) { return null; }
 }
 
-async function tryLogin(username, password) {
-  const accounts = await getAccounts();
-  const acc = accounts[username];
-  if (!acc) return { ok:false, reason:"帳號不存在" };
-  if (acc.status === "pending") return { ok:false, reason:"pending" };
-  if (acc.status === "rejected") return { ok:false, reason:"帳號已被拒絕" };
+function isSessionValid() {
+  const authed = sessionStorage.getItem('crm_authed');
+  const exp = parseInt(sessionStorage.getItem('crm_token_exp') || '0', 10);
+  const email = (sessionStorage.getItem('crm_email') || '').toLowerCase();
+  const now = Math.floor(Date.now() / 1000);
+  return authed === 'google-oauth' && exp > now && email.endsWith('@' + ALLOWED_DOMAIN);
+}
 
-  let ok = false;
-  if (acc.salt) {
-    ok = acc.password === await hashPwd(password, acc.salt);
-  } else {
-    // 舊帳號：用 legacy hash 驗證，通過後升級
-    ok = acc.password === legacyHashPwd(password);
-    if (ok) {
-      const salt = genSalt();
-      accounts[username] = { ...acc, password: await hashPwd(password, salt), salt };
-      await saveAccounts(accounts);
-    }
+function restoreSession() {
+  if (!isSessionValid()) { sessionStorage.clear(); return false; }
+  S.email = (sessionStorage.getItem('crm_email')||'').toLowerCase();
+  S.user = sessionStorage.getItem('crm_name') || S.email.split('@')[0];
+  S.picture = sessionStorage.getItem('crm_picture') || '';
+  S.userRole = ADMIN_EMAILS.includes(S.email) ? 'admin' : 'staff';
+  S.setup = true;
+  return true;
+}
+
+window.handleCredentialResponse = function(response) {
+  const idToken = response && response.credential;
+  if (!idToken) { S.authError = '登入失敗：未取得 Google 憑證'; render(); return; }
+  const payload = parseJwtPayload(idToken);
+  if (!payload) { S.authError = '登入失敗：無法解析憑證'; render(); return; }
+  const now = Math.floor(Date.now() / 1000);
+  if (!payload.exp || payload.exp < now) { S.authError = '登入失敗：憑證已過期'; render(); return; }
+  if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
+    S.authError = '登入失敗：憑證簽發者不正確'; render(); return;
   }
-  if (!ok) return { ok:false, reason:"密碼錯誤" };
-  return { ok:true, role:acc.role, displayName:acc.displayName||username };
+  if (payload.aud !== CLIENT_ID) { S.authError = '登入失敗：憑證接收者不正確'; render(); return; }
+  if (payload.hd !== ALLOWED_DOMAIN || !payload.email || !payload.email.toLowerCase().endsWith('@' + ALLOWED_DOMAIN)) {
+    S.authError = '此系統僅限 @' + ALLOWED_DOMAIN + ' 網域帳號'; render(); return;
+  }
+  // 通過
+  sessionStorage.setItem('crm_authed', 'google-oauth');
+  sessionStorage.setItem('crm_id_token', idToken);
+  sessionStorage.setItem('crm_email', payload.email);
+  sessionStorage.setItem('crm_name', payload.name || payload.email);
+  sessionStorage.setItem('crm_picture', payload.picture || '');
+  sessionStorage.setItem('crm_token_exp', String(payload.exp));
+  S.email = payload.email.toLowerCase();
+  S.user = payload.name || S.email.split('@')[0];
+  S.picture = payload.picture || '';
+  S.userRole = ADMIN_EMAILS.includes(S.email) ? 'admin' : 'staff';
+  S.authError = '';
+  S.setup = true;
+  loadData();
+  render();
+};
+
+function logout() {
+  sessionStorage.clear();
+  S.email = ''; S.user = ''; S.picture = ''; S.userRole = '';
+  S.setup = false; S.authError = '';
+  if (window.google?.accounts?.id?.disableAutoSelect) {
+    window.google.accounts.id.disableAutoSelect();
+  }
+  render();
 }
 
-async function registerAccount(username, password, displayName) {
-  const accounts = await getAccounts();
-  if (accounts[username]) return { ok:false, reason:"帳號已存在" };
-  const isFirst = Object.keys(accounts).length === 0;
-  const salt = genSalt();
-  accounts[username] = {
-    password: await hashPwd(password, salt),
-    salt,
-    displayName: displayName || username,
-    role: isFirst ? "admin" : "staff",
-    status: isFirst ? "active" : "pending",
-    createdAt: Date.now(),
-  };
-  await saveAccounts(accounts);
-  return { ok:true, isFirst };
+function tryRenderGoogleButton() {
+  if (!window.google?.accounts?.id) { setTimeout(tryRenderGoogleButton, 100); return; }
+  const btn = document.getElementById('g-signin-btn');
+  if (!btn || btn.dataset.rendered) return;
+  window.google.accounts.id.initialize({
+    client_id: CLIENT_ID,
+    callback: window.handleCredentialResponse,
+    hd: ALLOWED_DOMAIN,
+    ux_mode: 'popup',
+    auto_select: false,
+    cancel_on_tap_outside: false,
+  });
+  window.google.accounts.id.renderButton(btn, {
+    type:'standard', theme:'filled_black', size:'large',
+    text:'signin_with', shape:'rectangular', logo_alignment:'left', width:340,
+  });
+  btn.dataset.rendered = '1';
 }
 async function savCalls()     { await dbSet("calls", S.calls);     sync("電訪記錄已同步"); }
 async function savRules()     { await dbSet("rules", S.rules);     sync("VIP 規則已同步"); }
@@ -667,84 +691,25 @@ function render() {
   if (!app) return;
 
   if (!S.setup) {
-    if (S.authView === "pending") {
-      app.innerHTML = `
-      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f5;">
-        <div class="card" style="max-width:380px;width:100%;text-align:center;padding:2.5rem;">
-          <div style="font-size:36px;margin-bottom:12px;">⏳</div>
-          <div style="font-size:18px;font-weight:700;color:#111;margin-bottom:8px;">等待管理員審核</div>
-          <div style="font-size:13px;color:#888;margin-bottom:24px;line-height:1.7;">帳號已送出申請<br>請等待管理員審核通過後再登入</div>
-          <button id="back-login" class="sbtn" style="width:100%;padding:10px;">← 返回登入</button>
-        </div>
-      </div>`;
-      document.getElementById("back-login").onclick = () => { S.authView="login"; render(); };
-      return;
-    }
-
-    const isReg = S.authView === "register";
     app.innerHTML = `
     <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f5;">
       <div class="card" style="max-width:400px;width:100%;padding:2.5rem;">
         <div style="text-align:center;margin-bottom:1.8rem;">
           <div style="font-size:32px;margin-bottom:8px;">📋</div>
           <div style="font-size:22px;font-weight:700;color:#111;">老客維繫 CRM</div>
-          <div style="font-size:13px;color:#888;margin-top:4px;">${isReg ? "建立新帳號" : "登入系統"}</div>
+          <div style="font-size:13px;color:#888;margin-top:6px;">使用 Google 帳號登入</div>
         </div>
-        ${S.authError ? `<div style="padding:10px 14px;background:#FFF0F0;border-radius:8px;font-size:13px;color:#E24B4A;margin-bottom:14px;text-align:center;">${S.authError}</div>` : ""}
-        ${isReg ? `<div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">顯示名稱（電訪記錄中顯示）</label><input id="auth-display" class="inp" type="text" placeholder="例：小美、阿志" style="width:100%;"></div>` : ""}
-        <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">帳號</label><input id="auth-user" class="inp" type="text" placeholder="輸入帳號" value="${S.loginForm.username}" style="width:100%;" autocomplete="username"></div>
-        <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">密碼</label><input id="auth-pwd" class="inp" type="password" placeholder="輸入密碼" style="width:100%;" autocomplete="${isReg?"new-password":"current-password"}"></div>
-        ${isReg ? `<div style="margin-bottom:18px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">確認密碼</label><input id="auth-pwd2" class="inp" type="password" placeholder="再次輸入密碼" style="width:100%;"></div>` : `<div style="margin-bottom:18px;"></div>`}
-        <button id="auth-submit" class="pbtn" style="width:100%;padding:11px;font-size:15px;">${isReg ? "建立帳號" : "登入 →"}</button>
-        <div style="text-align:center;margin-top:14px;font-size:13px;color:#888;">
-          ${isReg
-            ? `已有帳號？<button id="toggle-auth" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:13px;font-family:inherit;">登入</button>`
-            : `沒有帳號？<button id="toggle-auth" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:13px;font-family:inherit;">建立帳號</button>`}
+        ${S.authError ? `<div style="padding:10px 14px;background:#FFF0F0;border-radius:8px;font-size:13px;color:#E24B4A;margin-bottom:16px;text-align:center;">${S.authError}</div>` : ""}
+        <div style="display:flex;justify-content:center;margin-bottom:14px;">
+          <div id="g-signin-btn"></div>
         </div>
-        <div style="margin-top:12px;text-align:center;font-size:11px;color:#bbb;">${useFirebase ? "🟢 Firebase 即時同步" : "🟡 本機模式"}</div>
+        <p style="text-align:center;font-size:12px;color:#888;margin-bottom:8px;">
+          僅限 <span style="font-family:monospace;color:#555;">@${ALLOWED_DOMAIN}</span> 網域帳號
+        </p>
+        <div style="text-align:center;font-size:11px;color:#bbb;margin-top:14px;">${useFirebase ? "🟢 Firebase 即時同步" : "🟡 本機模式"}</div>
       </div>
     </div>`;
-
-    const syncForm = () => { S.loginForm.username = document.getElementById("auth-user")?.value||""; };
-
-    document.getElementById("toggle-auth").onclick = () => {
-      syncForm(); S.authView = isReg ? "login" : "register"; S.authError = ""; render();
-    };
-
-    document.getElementById("auth-submit").onclick = async () => {
-      const u = document.getElementById("auth-user")?.value.trim();
-      const p = document.getElementById("auth-pwd")?.value;
-      S.loginForm.username = u||"";
-      if (!u||!p) { S.authError="請填寫帳號和密碼"; render(); return; }
-
-      if (isReg) {
-        const d = document.getElementById("auth-display")?.value.trim() || u;
-        const p2 = document.getElementById("auth-pwd2")?.value;
-        if (p!==p2) { S.authError="兩次密碼不一致"; render(); return; }
-        if (p.length<4) { S.authError="密碼至少需要 4 個字元"; render(); return; }
-        const res = await registerAccount(u, p, d);
-        if (!res.ok) { S.authError=res.reason; render(); return; }
-        if (res.isFirst) {
-          S.user=d; S.userRole="admin"; S.setup=true; saveSession(); loadData();
-        } else {
-          S.authView="pending";
-        }
-        render();
-      } else {
-        const res = await tryLogin(u, p);
-        if (!res.ok) {
-          S.authError = res.reason==="pending" ? "帳號審核中，請等待管理員核准" : res.reason;
-          render(); return;
-        }
-        S.user=res.displayName; S.userRole=res.role; S.setup=true; S.authError="";
-        saveSession(); loadData(); render();
-      }
-    };
-
-    ["auth-user","auth-pwd","auth-pwd2","auth-display"].forEach(id=>{
-      const el=document.getElementById(id);
-      if(el) el.onkeydown=e=>{ if(e.key==="Enter") document.getElementById("auth-submit")?.click(); };
-    });
+    tryRenderGoogleButton();
     return;
   }
 
@@ -802,18 +767,20 @@ function renderHeader(tot,vip,pend,done) {
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">
     <div>
       <div style="font-size:${mb?'16':'18'}px;font-weight:700;color:#111;">老客維繫 CRM</div>
-      <div style="font-size:11px;color:#888;margin-top:2px;display:flex;align-items:center;gap:5px;">
-        ${av(S.user,STAFF.indexOf(S.user),16)}
-        <span>${S.user}</span>
+      <div style="font-size:11px;color:#888;margin-top:2px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+        ${S.picture ? `<img src="${S.picture}" alt="" style="width:18px;height:18px;border-radius:50%;">` : av(S.user,STAFF.indexOf(S.user),18)}
+        <span style="color:#333;font-weight:500;">${S.user}</span>
+        ${S.email ? `<span style="color:#bbb;">·</span><span style="color:#999;">${S.email}</span>` : ""}
+        ${S.userRole==="admin" ? `<span style="padding:1px 5px;background:#FFF3CC;color:#8A5C00;border-radius:3px;font-size:10px;font-weight:600;">admin</span>` : ""}
         ${S.syncMsg ? `<span class="sync-badge">✓ ${S.syncMsg}</span>` : ""}
         <span style="font-size:10px;color:#bbb;">${useFirebase?"🟢":"🟡"}</span>
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
-      ${mb?"":`<button id="sw" class="sbtn" style="font-size:12px;">切換帳號</button>`}
+      ${mb?"":`<button id="sw" class="sbtn" style="font-size:12px;">登出</button>`}
       <button id="iq" class="sbtn" style="font-size:12px;">匯入</button>
       <button id="nc" class="pbtn" style="font-size:12px;">+ 新增電訪</button>
-      ${mb?`<button id="sw" class="sbtn" style="font-size:12px;">切換帳號</button>`:""}
+      ${mb?`<button id="sw" class="sbtn" style="font-size:12px;">登出</button>`:""}
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:${mb?'6':'10'}px;">
@@ -1452,14 +1419,6 @@ function renderVIP() {
       </div>
     </div>
 
-    <!-- 帳號管理（僅 admin） -->
-    ${S.userRole==="admin" ? `
-    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
-      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:4px;">🔐 帳號管理</div>
-      <div style="font-size:12px;color:#888;margin-bottom:12px;">審核待加入的夥伴帳號</div>
-      <div id="account-list-area"><div style="font-size:13px;color:#bbb;">載入中...</div></div>
-    </div>` : ""}
-
     <!-- 危險操作 -->
     ${S.userRole==="admin" ? `
     <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
@@ -1731,83 +1690,10 @@ function bindEvents(pg,cl,cs,fl,tp) {
   const $ = id => document.getElementById(id);
   const on = (id,fn) => { const el=$(id); if(el) el.onclick=fn; };
 
-  on("sw", () => {
-    S.setup=false; S.user=""; S.userRole=""; S.authView="login"; S.authError="";
-    try { localStorage.removeItem("crm:session"); } catch(e) {}
-    render();
-  });
+  on("sw", () => logout());
   on("iq", () => { S.tab="import"; S.batchStep=0; S.fileQueue=[]; render(); });
   on("nc", () => { S.modal="call"; render(); });
 
-  // ── 帳號管理（admin 才有）──
-  if (S.userRole==="admin" && S.tab==="vip") {
-    const area = document.getElementById("account-list-area");
-    if (area) {
-      getAccounts().then(accounts => {
-        const list = Object.entries(accounts);
-        if (list.length===0) { area.innerHTML=`<div style="font-size:13px;color:#bbb;">尚無帳號</div>`; return; }
-        area.innerHTML = `<div style="border:1px solid #eee;border-radius:10px;overflow:hidden;">
-          <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead><tr>${["顯示名稱","帳號","角色","狀態","操作"].map(h=>`<th style="background:#f8f8f8;padding:8px 10px;text-align:left;font-size:12px;color:#999;border-bottom:1px solid #eee;">${h}</th>`).join("")}</tr></thead>
-            <tbody>
-              ${list.map(([uname,acc])=>`<tr>
-                <td style="padding:8px 10px;border-bottom:1px solid #eee;">${acc.displayName||uname}</td>
-                <td style="padding:8px 10px;border-bottom:1px solid #eee;color:#888;font-size:12px;">${uname}</td>
-                <td style="padding:8px 10px;border-bottom:1px solid #eee;">
-                  <span style="padding:2px 7px;border-radius:4px;font-size:11px;background:${acc.role==="admin"?"#FFF3CC":"#f0f0f0"};color:${acc.role==="admin"?"#8A5C00":"#555"};">
-                    ${acc.role==="admin"?"👑 管理員":"一般"}
-                  </span>
-                </td>
-                <td style="padding:8px 10px;border-bottom:1px solid #eee;">
-                  <span style="padding:2px 7px;border-radius:4px;font-size:11px;background:${acc.status==="active"?"#EAF3DE":acc.status==="pending"?"#FFF8E1":"#FAECE7"};color:${acc.status==="active"?"#3B6D11":acc.status==="pending"?"#854F0B":"#993C1D"};">
-                    ${acc.status==="active"?"已啟用":acc.status==="pending"?"待審核":"已拒絕"}
-                  </span>
-                </td>
-                <td style="padding:8px 10px;border-bottom:1px solid #eee;">
-                  <div style="display:flex;gap:4px;flex-wrap:wrap;">
-                    ${acc.status==="pending" ? `
-                      <button class="acc-approve" data-u="${uname}" style="padding:3px 8px;border:1px solid #3B6D11;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#3B6D11;">✓ 核准</button>
-                      <button class="acc-reject"  data-u="${uname}" style="padding:3px 8px;border:1px solid #E24B4A;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#E24B4A;">✕ 拒絕</button>
-                    ` : ""}
-                    ${acc.role!=="admin" && acc.status==="active" ? `
-                      <button class="acc-promote" data-u="${uname}" style="padding:3px 8px;border:1px solid #185FA5;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#185FA5;">升為管理員</button>
-                    ` : ""}
-                    ${uname !== S.loginForm.username ? `
-                      <button class="acc-delete" data-u="${uname}" style="padding:3px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#888;">刪除</button>
-                    ` : ""}
-                  </div>
-                </td>
-              </tr>`).join("")}
-            </tbody>
-          </table>
-        </div>`;
-
-        // 核准
-        area.querySelectorAll(".acc-approve").forEach(b => b.onclick = async () => {
-          const accounts = await getAccounts();
-          if (accounts[b.dataset.u]) { accounts[b.dataset.u].status="active"; await saveAccounts(accounts); render(); }
-        });
-        // 拒絕
-        area.querySelectorAll(".acc-reject").forEach(b => b.onclick = async () => {
-          const accounts = await getAccounts();
-          if (accounts[b.dataset.u]) { accounts[b.dataset.u].status="rejected"; await saveAccounts(accounts); render(); }
-        });
-        // 升為管理員
-        area.querySelectorAll(".acc-promote").forEach(b => b.onclick = async () => {
-          const accounts = await getAccounts();
-          if (accounts[b.dataset.u]) { accounts[b.dataset.u].role="admin"; await saveAccounts(accounts); render(); }
-        });
-        // 刪除
-        area.querySelectorAll(".acc-delete").forEach(b => b.onclick = () => {
-          showConfirm("刪除帳號", `確定要刪除帳號「${b.dataset.u}」嗎？`, "刪除", async () => {
-            const accounts = await getAccounts();
-            delete accounts[b.dataset.u];
-            await saveAccounts(accounts); render();
-          });
-        });
-      });
-    }
-  }
   document.querySelectorAll(".tab-btn").forEach(b => b.onclick=()=>{ S.tab=b.dataset.tab; S.pg=0; render(); });
 
   // ── 拖曳區 ──
@@ -2181,43 +2067,27 @@ function bindEvents(pg,cl,cs,fl,tp) {
   const nt=$("nt"); if(nt) nt.oninput=()=>{ S.noteText=nt.value; };
 }
 
-// ── 登入狀態持久化 ────────────────────────────────────────────────────
-function saveSession() {
-  try {
-    localStorage.setItem("crm:session", JSON.stringify({
-      user: S.user,
-      userRole: S.userRole,
-      setup: S.setup,
-    }));
-  } catch(e) {}
-}
-
-function loadSession() {
-  try {
-    const raw = localStorage.getItem("crm:session");
-    if (!raw) return false;
-    const sess = JSON.parse(raw);
-    if (sess.setup && sess.user) {
-      S.user = sess.user;
-      S.userRole = sess.userRole || "staff";
-      S.setup = true;
-      return true;
-    }
-  } catch(e) {}
-  return false;
-}
-
 // ── Init ─────────────────────────────────────────────────────────────
+// 清掉舊版自製登入殘留
+try { localStorage.removeItem("crm:session"); } catch(e) {}
+
 initFirebase();
 if (!useFirebase) {
   setTimeout(() => { if (S.setup) loadData(); }, 100);
   setInterval(() => { if (!S.setup||useFirebase||S.modal) return; loadData(); }, 15000);
 }
 
-// 嘗試恢復登入狀態
-if (loadSession()) {
-  loadData();
-}
+// 從 sessionStorage 還原 Google 登入狀態
+if (restoreSession()) loadData();
+
+// bfcache 還原時重新驗證 session
+window.addEventListener('pageshow', e => {
+  if (e.persisted) {
+    if (isSessionValid()) { if (!S.setup) { restoreSession(); loadData(); render(); } }
+    else { logout(); }
+  }
+});
+
 render();
 </script>
 </body>
