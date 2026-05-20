@@ -1,0 +1,2224 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>老客維繫 CRM</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,-apple-system,sans-serif;color:#333;background:#f5f5f5;min-height:100vh;}
+.wrap{max-width:1200px;margin:0 auto;padding:1.5rem;}
+@media(max-width:640px){
+  .wrap{padding:.75rem;}
+  .hide-mobile{display:none!important;}
+  .mobile-card{border-radius:10px!important;padding:1rem!important;}
+  .mobile-full{width:100%!important;min-width:0!important;}
+  .mobile-wrap{flex-wrap:wrap!important;}
+  .mobile-small{font-size:12px!important;}
+  .mobile-row{display:flex!important;justify-content:space-between!important;align-items:center!important;padding:7px 0!important;border-bottom:1px solid #f0f0f0!important;}
+}
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;}
+.bvip{background:#FFF3CC;color:#8A5C00;}
+.breg{background:#F1EFE8;color:#5F5E5A;}
+.bnew{background:#E6F1FB;color:#185FA5;}
+.bpend{background:#FAECE7;color:#993C1D;}
+.bdone{background:#EAF3DE;color:#3B6D11;}
+.bassn{background:#E6F1FB;color:#185FA5;}
+.av{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0;}
+.av0{background:#EEEDFE;color:#3C3489;}
+.av1{background:#E1F5EE;color:#085041;}
+.av2{background:#FAECE7;color:#712B13;}
+.av3{background:#FAEEDA;color:#633806;}
+tr:hover td{background:#fafafa;}
+.tab-btn{padding:9px 18px;font-size:13px;cursor:pointer;background:none;border:none;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;font-family:inherit;}
+.tab-btn.active{color:#111;border-bottom-color:#111;font-weight:500;}
+.sbtn{padding:7px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer;background:#fff;color:#333;font-family:inherit;}
+.sbtn:hover{background:#f5f5f5;}
+.pbtn{padding:7px 16px;background:#111;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;font-family:inherit;}
+.pbtn:hover{background:#333;}
+.inp{padding:8px 11px;border:1px solid #ddd;border-radius:8px;font-size:13px;background:#fff;color:#333;font-family:inherit;}
+.inp:focus{outline:none;border-color:#aaa;}
+.sel{padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;background:#fff;color:#333;cursor:pointer;font-family:inherit;}
+.card{background:#fff;border-radius:12px;padding:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.drop-zone{border:2px dashed #ddd;border-radius:12px;padding:2.5rem 1rem;text-align:center;cursor:pointer;transition:all .15s;}
+.drop-zone:hover,.drop-zone.over{background:#f0f8ff;border-color:#185FA5;}
+.kv{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:13px;}
+.kv:last-child{border-bottom:none;}
+.kv-k{color:#888;}
+.kv-v{color:#111;font-weight:500;}
+.note-box{background:#f8f8f8;border-radius:8px;padding:10px 12px;margin-bottom:8px;}
+.note-txt{font-size:13px;color:#333;}
+.note-meta{font-size:11px;color:#888;margin-top:4px;}
+.sec-hd{font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.modal{background:#fff;border-radius:14px;padding:1.8rem;width:100%;max-width:460px;box-shadow:0 8px 32px rgba(0,0,0,.12);}
+.sync-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#EAF3DE;border-radius:4px;font-size:11px;color:#3B6D11;font-weight:500;}
+/* 檔案佇列 */
+.file-queue{margin-top:14px;}
+.file-item{display:flex;align-items:center;gap:10px;padding:9px 12px;background:#fff;border:1px solid #eee;border-radius:8px;margin-bottom:6px;font-size:13px;}
+.file-item.done{background:#f0fff4;border-color:#c6f6d5;}
+.file-item.error{background:#fff5f5;border-color:#fed7d7;}
+.file-item.processing{background:#eff8ff;border-color:#bee3f8;}
+.file-icon{font-size:18px;flex-shrink:0;}
+.file-name{flex:1;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.file-status{font-size:12px;font-weight:500;flex-shrink:0;}
+.file-status.done{color:#3B6D11;}
+.file-status.error{color:#E24B4A;}
+.file-status.processing{color:#185FA5;}
+.file-status.pending{color:#888;}
+.progress-bar{height:4px;background:#eee;border-radius:2px;margin-top:8px;overflow:hidden;}
+.progress-fill{height:100%;background:#185FA5;border-radius:2px;transition:width .3s;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="app"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// ★ Firebase 設定區（選填，填入後多人即時同步）
+// ═══════════════════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAsCSJfG5ivdHZ2Qhc1Ss6H3UCNYPs7Kj8",
+  authDomain: "crm-sync-1d2a0.firebaseapp.com",
+  databaseURL: "https://crm-sync-1d2a0-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "crm-sync-1d2a0",
+};
+// ═══════════════════════════════════════════════════════════════════
+
+let STAFF = ["小美","小華","阿志","小雯"];
+const AVC = ["av0","av1","av2","av3"];
+const PS = 25;
+const isMobile = () => window.innerWidth <= 640;
+
+let db = null, useFirebase = false;
+
+function initFirebase() {
+  if (!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey === "YOUR_API_KEY") return;
+  const s1 = document.createElement("script");
+  s1.src = "https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js";
+  s1.onload = () => {
+    const s2 = document.createElement("script");
+    s2.src = "https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js";
+    s2.onload = () => {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.database();
+      useFirebase = true;
+      db.ref("crm/calls").on("value", snap => { const v=snap.val(); if(v){S.calls=v; if(!S.modal)render();} });
+      db.ref("crm/rules").on("value", snap => { const v=snap.val(); if(v){S.rules=v; if(!S.modal)render();} });
+      loadData();
+    };
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s1);
+}
+
+async function dbGet(k) {
+  if (useFirebase && db) { const s=await db.ref("crm/"+k).get(); return s.exists()?s.val():null; }
+  const v = localStorage.getItem("crm:"+k);
+  return v ? JSON.parse(v) : null;
+}
+async function dbSet(k, v) {
+  if (useFirebase && db) { await db.ref("crm/"+k).set(v); return; }
+  localStorage.setItem("crm:"+k, JSON.stringify(v));
+}
+
+// ── State ────────────────────────────────────────────────────────────
+let S = {
+  custs:[], calls:{}, rules:{amt:5000,cnt:3},
+  staffList:["小美","小華","阿志","小雯"],  // 可自訂
+  addStaffInput:"",
+  // ── 權限系統 ──
+  userRole: "",      // "admin" | "staff"
+  authView: "login", // "login" | "pending" | "app"
+  loginForm: { username:"", password:"" },
+  authError: "",
+  tab:"import", q:"", fSrc:"", fGrade:"", fStatus:"", fAmtMin:"", fAmtMax:"", pg:0,
+  cq:"", fcSt:"", fcStf:"",
+  selectedCall: null,
+  sortCol:"", sortDir:1,
+  editingDetail: false,
+  editForm: {},
+  expandedPays: {},   // payId → true/false
+  detail:null, modal:null, noteTarget:null,
+  fc:{client:"",staff:STAFF[0],time:"",note:""},
+  noteText:"", user:"", setup:false, syncMsg:"",
+  confirmModal: null,  // {msg, onConfirm}
+  editNote: null,      // {callId, idx, text} — 正在編輯的備註
+  // 多檔案匯入
+  fileQueue:[],       // [{file, name, status, rows, result}]
+  batchStep:0,        // 0=上傳 1=欄位對應 2=處理中 3=完成
+  hdrs:[], fm:{name:"",phone:"",amount:"",payments:"",orders:"",source:"",lastDate:"",firstDate:"",fb:"",goodsName:"",qty:"",unitPrice:"",address:""},
+  batchStats:null,
+  storeFormatDetected: false,
+  importedPayIds: new Set(),  // 已匯入的付款單號，防止重複累加
+};
+
+async function loadData() {
+  const [c,cl,r,pids,sl] = await Promise.all([dbGet("customers"),dbGet("calls"),dbGet("rules"),dbGet("importedPayIds"),dbGet("staffList")]);
+  if (c) S.custs = Array.isArray(c) ? c : Object.values(c);
+  if (cl) S.calls = cl;
+  if (r) S.rules = r;
+  if (pids && Array.isArray(pids)) S.importedPayIds = new Set(pids);
+  if (sl && Array.isArray(sl) && sl.length > 0) S.staffList = sl;
+  STAFF = S.staffList;
+  if (S.custs.length > 0 && S.tab === "import") S.tab = "clients";
+  render();
+}
+async function savCustomers() { await dbSet("customers", S.custs); sync("客戶資料已同步"); }
+async function saveImportedPayIds() { await dbSet("importedPayIds", [...S.importedPayIds]); }
+async function saveStaffList() { await dbSet("staffList", S.staffList); STAFF = S.staffList; }
+
+// ── 帳號管理 ──────────────────────────────────────────────────────────
+async function getAccounts() {
+  const d = await dbGet("accounts");
+  return d || {};
+}
+async function saveAccounts(accounts) {
+  await dbSet("accounts", accounts);
+}
+
+// 密碼 hash：PBKDF2-SHA256 × 100,000 iterations，每帳號獨立 salt
+async function hashPwd(pwd, salt) {
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey("raw", enc.encode(pwd), {name:"PBKDF2"}, false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    {name:"PBKDF2", salt:enc.encode(salt), iterations:100000, hash:"SHA-256"},
+    km, 256
+  );
+  return Array.from(new Uint8Array(bits)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function genSalt() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+// 舊版 hash 保留做相容：登入成功後自動升級到新格式
+function legacyHashPwd(pwd) {
+  let h = 0;
+  for (let i=0; i<pwd.length; i++) h = (Math.imul(31,h) + pwd.charCodeAt(i)) | 0;
+  return "h" + Math.abs(h).toString(36);
+}
+
+async function tryLogin(username, password) {
+  const accounts = await getAccounts();
+  const acc = accounts[username];
+  if (!acc) return { ok:false, reason:"帳號不存在" };
+  if (acc.status === "pending") return { ok:false, reason:"pending" };
+  if (acc.status === "rejected") return { ok:false, reason:"帳號已被拒絕" };
+
+  let ok = false;
+  if (acc.salt) {
+    ok = acc.password === await hashPwd(password, acc.salt);
+  } else {
+    // 舊帳號：用 legacy hash 驗證，通過後升級
+    ok = acc.password === legacyHashPwd(password);
+    if (ok) {
+      const salt = genSalt();
+      accounts[username] = { ...acc, password: await hashPwd(password, salt), salt };
+      await saveAccounts(accounts);
+    }
+  }
+  if (!ok) return { ok:false, reason:"密碼錯誤" };
+  return { ok:true, role:acc.role, displayName:acc.displayName||username };
+}
+
+async function registerAccount(username, password, displayName) {
+  const accounts = await getAccounts();
+  if (accounts[username]) return { ok:false, reason:"帳號已存在" };
+  const isFirst = Object.keys(accounts).length === 0;
+  const salt = genSalt();
+  accounts[username] = {
+    password: await hashPwd(password, salt),
+    salt,
+    displayName: displayName || username,
+    role: isFirst ? "admin" : "staff",
+    status: isFirst ? "active" : "pending",
+    createdAt: Date.now(),
+  };
+  await saveAccounts(accounts);
+  return { ok:true, isFirst };
+}
+async function savCalls()     { await dbSet("calls", S.calls);     sync("電訪記錄已同步"); }
+async function savRules()     { await dbSet("rules", S.rules);     sync("VIP 規則已同步"); }
+function sync(m) { S.syncMsg=m; render(); setTimeout(()=>{ S.syncMsg=""; render(); },2500); }
+
+// ── Helpers ──────────────────────────────────────────────────────────
+function grade(c) {
+  if (c.amount>=S.rules.amt || c.payments>=S.rules.cnt) return "VIP";
+  if (c.payments<=1) return "新客";
+  return "一般";
+}
+function fmtD(s) {
+  if (!s) return "—";
+  s = String(s).replace(/-/g,"");
+  if (s.length<8) return s;
+  return s.slice(0,4)+"/"+s.slice(4,6)+"/"+s.slice(6,8);
+}
+function custs() {
+  return S.custs.map((c,i) => {
+    const id = c.id||(c.phone+"-"+i);
+    const cl = S.calls[id]||{};
+    // 最後跟進日期：取 notes 最後一筆日期，或 updatedAt
+    const notes = cl.notes||[];
+    const lastNote = notes.length > 0 ? notes[notes.length-1] : null;
+    const lastFollowDate = lastNote?.date || (cl.updatedAt ? new Date(cl.updatedAt).toLocaleDateString("zh-TW") : "");
+    return {...c, id, grade:grade(c), staff:cl.staff||"", status:cl.status||"待跟進", notes, callTime:cl.callTime||"", lastFollowDate};
+  });
+}
+function av(n,idx,sz=28) {
+  const i = typeof idx==="number"?idx:STAFF.indexOf(n);
+  const cls = AVC[Math.max(0,i)%4];
+  return `<div class="av ${cls}" style="width:${sz}px;height:${sz}px;font-size:${Math.floor(sz*.4)}px;">${n?n[0]:"?"}</div>`;
+}
+function gb(g) {
+  if (g==="VIP") return '<span class="badge bvip">★ VIP</span>';
+  if (g==="新客") return '<span class="badge bnew">新客</span>';
+  return '<span class="badge breg">一般</span>';
+}
+function sb(s) {
+  if (s==="已完成") return '<span class="badge bdone">已完成</span>';
+  if (s==="已指派") return '<span class="badge bassn">已指派</span>';
+  return '<span class="badge bpend">待跟進</span>';
+}
+function cleanSrc(s) {
+  // 直播資料不管原始欄位填什麼，一律標「直播」
+  return "直播";
+}
+
+// ── 讀取單一檔案為 rows ─────────────────────────────────────────────
+function readFileToRows(file) {
+  return new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onload = e => {
+      try {
+        let rows=[], hdrs=[];
+        if (file.name.toLowerCase().endsWith(".csv")) {
+          const txt = new TextDecoder("utf-8").decode(new Uint8Array(e.target.result));
+          const lines = txt.split(/\r?\n/).filter(l=>l.trim());
+          hdrs = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,""));
+          rows = lines.slice(1).map(l => {
+            const v = l.split(",").map(x=>x.trim().replace(/^"|"$/g,""));
+            const o={}; hdrs.forEach((h,i)=>o[h]=v[i]||""); return o;
+          });
+          resolve({rows, hdrs, storeFormat: false});
+        } else {
+          const wb = XLSX.read(e.target.result, {type:"array"});
+          // ★ 門市格式偵測：含「明細」工作表且有「單據號碼」欄位
+          const isStore = wb.SheetNames.includes("明細") &&
+            (() => {
+              const ws = wb.Sheets["明細"];
+              const r = XLSX.utils.sheet_to_json(ws, {defval:"", header:1});
+              return r[0] && r[0].includes("單據號碼");
+            })();
+
+          if (isStore) {
+            // 門市格式：讀「明細」工作表
+            const ws = wb.Sheets["明細"];
+            rows = XLSX.utils.sheet_to_json(ws, {defval:""});
+            hdrs = rows.length>0 ? Object.keys(rows[0]) : [];
+            resolve({rows, hdrs, storeFormat: true});
+          } else {
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            rows = XLSX.utils.sheet_to_json(ws, {defval:""});
+            hdrs = rows.length>0 ? Object.keys(rows[0]) : [];
+            resolve({rows, hdrs, storeFormat: false});
+          }
+        }
+      } catch(err) { reject(err); }
+    };
+    rd.onerror = () => reject(new Error("讀取失敗"));
+    rd.readAsArrayBuffer(file);
+  });
+}
+
+// 民國日期轉西元（114.09.08 → 20250908）
+function rocToAD(s) {
+  if (!s) return "";
+  const m = String(s).match(/^(\d{2,3})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);
+  if (!m) return String(s).replace(/-/g,"").slice(0,8);
+  const y = parseInt(m[1]) + 1911;
+  return `${y}${m[2].padStart(2,"0")}${m[3].padStart(2,"0")}`;
+}
+
+// 門市資料專用解析：rows 來自「明細」工作表
+function storeRowsToCustMap(rows) {
+  const custMap = {};
+  rows.forEach(r => {
+    const custId = String(r["客戶代號"]||"").trim().toUpperCase();
+    const name   = String(r["簡稱"]||"").trim();
+    if (!name && !custId) return;
+    const key = custId || name;
+
+    if (!custMap[key]) custMap[key] = {
+      name, phone: custId,
+      fb:"", source:"門市", address:"",
+      payIds: new Set(),
+      orderIds: new Set(),
+      totalAmt: 0,
+      firstDate:"", lastDate:"",
+      payments: {},
+    };
+    const cc = custMap[key];
+    if (!cc.name && name) cc.name = name;
+
+    const payId    = String(r["單據號碼"]||"").trim();
+    const rowAmt   = parseFloat(r["小計"])||0;
+    const rowDate  = rocToAD(r["日期"]);
+    const goodsName= String(r["產品名稱"]||"").trim();
+    const qty      = parseInt(r["數量"])||1;
+    const unitPrice= parseFloat(r["單價"])||0;
+    const unitType = String(r["單據型態"]||"").trim();
+
+    // 只計「P 銷」（排除退貨等）
+    if (unitType && !unitType.includes("銷")) return;
+
+    if (payId) {
+      if (S.importedPayIds.has(payId)) return; // 防呆
+
+      if (!cc.payIds.has(payId)) {
+        cc.payIds.add(payId);
+        cc.totalAmt += rowAmt;
+        cc.payments[payId] = { date:rowDate, amount:0, address:"", items:[] };
+      }
+      cc.payments[payId].amount += rowAmt;
+      if (goodsName) cc.payments[payId].items.push({name:goodsName, qty, unitPrice, amount:rowAmt});
+    } else {
+      cc.totalAmt += rowAmt;
+    }
+
+    const d  = rowDate;
+    if (d && (!cc.lastDate ||d >cc.lastDate )) cc.lastDate  = d;
+    if (d && (!cc.firstDate||d<cc.firstDate )) cc.firstDate = d;
+  });
+  return { custMap, skippedPayIds: 0 };
+}
+
+// ── 自動猜測欄位 ────────────────────────────────────────────────────
+function autoDetectFields(hdrs) {
+  const auto = {
+    name:["收件人","姓名","客戶姓名","name"],
+    phone:["聯絡電話","電話","手機","phone"],
+    amount:["總金額","消費金額","金額","amount","消費總額"],
+    payments:["付款單號","付款單數","payments"],
+    orders:["訂單編號","訂單數","orders"],
+    source:["入單來源","來源","source"],
+    lastDate:["下單日期","最後消費日","lastDate"],
+    firstDate:["首次消費日","firstDate"],
+    fb:["FB帳號","FB","facebook","買家名稱","社群帳號","fb帳號","臉書"],
+    goodsName:["商品名稱","商品","品名","goodsName","product"],
+    qty:["數量","qty","quantity"],
+    unitPrice:["單價","unitPrice","price"],
+    address:["寄送地址","地址","收件地址","address"],
+  };
+  const mp = {};
+  Object.entries(auto).forEach(([f,cs]) => {
+    const h = cs.find(c => hdrs.some(x=>x.includes(c)));
+    mp[f] = h ? hdrs.find(x=>x.includes(h))||"" : "";
+  });
+  return mp;
+}
+
+// ── 把 rows 彙整成客戶 Map ─────────────────────────────────────────
+function rowsToCustMap(rows, fm) {
+  const custMap = {};
+  let skippedPayIds = 0;  // 因全域去重跳過的付款單數
+
+  rows.forEach(r => {
+    const name  = String(r[fm.name]||"").trim();
+    const phone = String(r[fm.phone]||"").trim();
+    if (!name && !phone) return;
+    const key = phone || name;
+    if (!custMap[key]) custMap[key] = {
+      name, phone,
+      fb: String(r[fm.fb]||""),
+      source: cleanSrc(r[fm.source]),
+      address: "",
+      payIds: new Set(),
+      orderIds: new Set(),
+      totalAmt: 0,
+      firstDate:"", lastDate:"",
+      payments: {},
+    };
+    const cc = custMap[key];
+    const rowAddress = fm.address && r[fm.address] ? String(r[fm.address]).trim() : "";
+    const payId    = String(r[fm.payments]||"").trim();
+    const orderId  = String(r[fm.orders]||"").trim();
+    const rowAmt   = parseFloat(r[fm.amount])||0;
+    const rowDate  = String(r[fm.lastDate]||"").replace(/-/g,"").slice(0,8);
+    const goodsName= fm.goodsName ? String(r[fm.goodsName]||"").trim() : "";
+    const qty      = fm.qty ? parseInt(r[fm.qty])||1 : 1;
+    const unitPrice= fm.unitPrice ? parseFloat(r[fm.unitPrice])||0 : 0;
+
+    if (payId && payId.length > 3) {
+      // ★ 防呆：此付款單號已在歷次匯入中存在 → 跳過
+      if (S.importedPayIds.has(payId)) {
+        skippedPayIds++;
+        // 仍允許補入商品明細（不重複計金額）
+        if (cc.payments[payId] && goodsName) {
+          // 避免同一商品重複加入
+          const alreadyHas = cc.payments[payId].items.some(i => i.name===goodsName && i.qty===qty);
+          if (!alreadyHas) cc.payments[payId].items.push({ name:goodsName, qty, unitPrice, amount:rowAmt });
+        }
+        return;
+      }
+
+      if (!cc.payIds.has(payId)) {
+        // 付款單第一次出現：建立記錄，amount 先設 0，後面逐筆累加
+        cc.payIds.add(payId);
+        cc.payments[payId] = { date:rowDate, amount:0, address:rowAddress, items:[] };
+      }
+
+      // ★ 每一筆商品金額都累加到付款單總額 和 客戶總額
+      cc.payments[payId].amount += rowAmt;
+      cc.totalAmt += rowAmt;
+
+      // 補地址
+      if (rowAddress && !cc.payments[payId].address) {
+        cc.payments[payId].address = rowAddress;
+      }
+      // 加入商品明細
+      if (goodsName) {
+        cc.payments[payId].items.push({ name:goodsName, qty, unitPrice, amount:rowAmt });
+      }
+    } else {
+      if (orderId && cc.orderIds.has(orderId)) {}
+      else {
+        if (orderId) cc.orderIds.add(orderId);
+        cc.totalAmt += rowAmt;
+        const fakeKey = orderId || ("ord-"+Object.keys(cc.payments).length);
+        if (!cc.payments[fakeKey]) cc.payments[fakeKey] = { date:rowDate, amount:0, address:rowAddress, items:[] };
+        cc.payments[fakeKey].amount += rowAmt;
+        if (goodsName) cc.payments[fakeKey].items.push({ name:goodsName, qty, unitPrice, amount:rowAmt });
+      }
+    }
+    if (orderId) cc.orderIds.add(orderId);
+
+    const d  = String(r[fm.lastDate]||"").replace(/-/g,"").slice(0,8);
+    const fd = String(r[fm.firstDate]||r[fm.lastDate]||"").replace(/-/g,"").slice(0,8);
+    if (d  && (!cc.lastDate ||d >cc.lastDate )) cc.lastDate  = d;
+    if (fd && (!cc.firstDate||fd<cc.firstDate)) cc.firstDate = fd;
+    if (!cc.fb && r[fm.fb]) cc.fb = String(r[fm.fb]);
+    if (rowAddress) cc.address = rowAddress;
+  });
+  return { custMap, skippedPayIds };
+}
+
+// ── 核心：合併一個 custMap 進 S.custs，同時更新全域已匯入付款單號 ──
+function mergeCustMap(custMap) {
+  const phoneMap = {};
+  S.custs.forEach(c => { if(c.phone) phoneMap[c.phone] = c; });
+  let merged=0, added=0;
+  Object.values(custMap).forEach(nc => {
+    const newPayDetails = nc.payments;
+
+    // ★ 把本次新付款單號加入全域 Set
+    nc.payIds.forEach(pid => S.importedPayIds.add(pid));
+
+    if (nc.phone && phoneMap[nc.phone]) {
+      const ex = phoneMap[nc.phone];
+
+      // 合併 payDetails（以付款單號為 key，不覆蓋已有的）
+      if (!ex.payDetails) ex.payDetails = {};
+      Object.entries(newPayDetails).forEach(([pid, pd]) => {
+        if (!ex.payDetails[pid]) ex.payDetails[pid] = pd;
+      });
+
+      // ★ 重算：以 payDetails 為唯一真相，重新計算 amount 和 payments
+      const pidList = Object.keys(ex.payDetails);
+      ex.amount   = pidList.reduce((s, pid) => s + (ex.payDetails[pid].amount||0), 0);
+      ex.payments = pidList.length;
+
+      // 更新日期
+      if (nc.lastDate  && (!ex.lastDate ||nc.lastDate >ex.lastDate )) ex.lastDate  = nc.lastDate;
+      if (nc.firstDate && (!ex.firstDate||nc.firstDate<ex.firstDate)) ex.firstDate = nc.firstDate;
+
+      // 補充資料
+      if (!ex.fb && nc.fb) ex.fb = nc.fb;
+      if (nc.fb) ex.fb = nc.fb; // 有新 fb 就更新
+      if (!ex.address && nc.address) ex.address = nc.address;
+      if (ex.source && nc.source && ex.source!==nc.source) {
+        // 直播 + 門市 合併
+        const srcs = new Set([ex.source, nc.source]);
+        if (srcs.has("門市") && srcs.has("直播")) ex.source = "門市+直播";
+        else ex.source = "多管道";
+      }
+      merged++;
+    } else {
+      // 新客戶：直接用 payDetails 計算正確的 amount 和 payments
+      const pidList = Object.keys(newPayDetails);
+      const correctAmount   = pidList.reduce((s, pid) => s + (newPayDetails[pid].amount||0), 0);
+      const correctPayments = pidList.length || nc.payIds.size || 1;
+
+      const newC = {
+        id: "i"+Date.now()+Math.random().toString(36).slice(2,6),
+        name:nc.name, phone:nc.phone, fb:nc.fb,
+        amount:correctAmount,
+        payments:correctPayments,
+        orders: Math.max(pidList.reduce((s,pid)=>(newPayDetails[pid].items||[]).length?s+(newPayDetails[pid].items.length):s+1, 0), correctPayments),
+        source:nc.source, lastDate:nc.lastDate, firstDate:nc.firstDate,
+        address:nc.address||"",
+        payDetails: newPayDetails,
+      };
+      S.custs.push(newC);
+      if (nc.phone) phoneMap[nc.phone] = newC;
+      added++;
+    }
+  });
+  return {merged, added};
+}
+
+// ── 加入檔案到佇列 ─────────────────────────────────────────────────
+function addFilesToQueue(files) {
+  const validExts = [".xlsx",".xls",".csv"];
+  Array.from(files).forEach(file => {
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    if (!validExts.includes(ext)) return;
+    // 避免重複加入同名檔案
+    if (S.fileQueue.some(f => f.name===file.name)) return;
+    S.fileQueue.push({ file, name:file.name, status:"pending", rows:[], hdrs:[], result:null });
+  });
+  if (S.fileQueue.length > 0 && S.batchStep === 0) {
+    // 讀取第一個檔案的 headers 來做欄位對應
+    readFirstHeaders();
+  }
+}
+
+async function readFirstHeaders() {
+  const first = S.fileQueue[0];
+  try {
+    const {hdrs, storeFormat} = await readFileToRows(first.file);
+    if (storeFormat) {
+      // 門市格式：自動辨識，直接跳到步驟2執行
+      first.detectedFormat = "門市";
+      // 標記所有檔案，讓步驟1提示
+      S.batchStep = 1;
+      S.hdrs = [];
+      S.storeFormatDetected = true;
+    } else {
+      S.hdrs = hdrs;
+      S.fm = autoDetectFields(hdrs);
+      S.storeFormatDetected = false;
+      S.batchStep = 1;
+    }
+    render();
+  } catch(e) {
+    first.status = "error";
+    first.result = e.message;
+    render();
+  }
+}
+
+// ── 批次執行所有檔案匯入 ───────────────────────────────────────────
+async function runBatchImport() {
+  S.batchStep = 2;
+  render();
+
+  let totalMerged=0, totalAdded=0, totalSkipped=0;
+
+  for (let i=0; i<S.fileQueue.length; i++) {
+    const item = S.fileQueue[i];
+    item.status = "processing";
+    render();
+    try {
+      const {rows, hdrs, storeFormat} = await readFileToRows(item.file);
+      let custMap, skippedPayIds;
+      if (storeFormat) {
+        // 門市格式：專用解析
+        item.detectedFormat = "門市";
+        ({custMap, skippedPayIds} = storeRowsToCustMap(rows));
+      } else {
+        // 直播/一般格式
+        item.detectedFormat = "直播";
+        if (item === S.fileQueue[0]) {
+          // 只在第一個檔案偵測欄位
+          const auto = autoDetectFields(hdrs);
+          S.fm = auto; S.hdrs = hdrs;
+        }
+        ({custMap, skippedPayIds} = rowsToCustMap(rows, S.fm));
+      }
+      const {merged, added} = mergeCustMap(custMap);
+      item.status = "done";
+      item.skipped = skippedPayIds;
+      item.result = `[${item.detectedFormat}] 新增 ${added} 位，更新 ${merged} 位${skippedPayIds>0?`，略過 ${skippedPayIds} 筆重複`:""}`;
+      totalMerged  += merged;
+      totalAdded   += added;
+      totalSkipped += skippedPayIds;
+    } catch(e) {
+      item.status = "error";
+      item.result = e.message;
+    }
+    render();
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  // 儲存客戶資料 + 全域已匯入付款單號
+  await Promise.all([savCustomers(), saveImportedPayIds()]);
+  S.batchStats = { merged:totalMerged, added:totalAdded, total:S.custs.length, files:S.fileQueue.length, skipped:totalSkipped };
+  S.batchStep = 3;
+  render();
+}
+
+// ── Render ────────────────────────────────────────────────────────────
+function render() {
+  const app = document.getElementById("app");
+  if (!app) return;
+
+  if (!S.setup) {
+    if (S.authView === "pending") {
+      app.innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f5;">
+        <div class="card" style="max-width:380px;width:100%;text-align:center;padding:2.5rem;">
+          <div style="font-size:36px;margin-bottom:12px;">⏳</div>
+          <div style="font-size:18px;font-weight:700;color:#111;margin-bottom:8px;">等待管理員審核</div>
+          <div style="font-size:13px;color:#888;margin-bottom:24px;line-height:1.7;">帳號已送出申請<br>請等待管理員審核通過後再登入</div>
+          <button id="back-login" class="sbtn" style="width:100%;padding:10px;">← 返回登入</button>
+        </div>
+      </div>`;
+      document.getElementById("back-login").onclick = () => { S.authView="login"; render(); };
+      return;
+    }
+
+    const isReg = S.authView === "register";
+    app.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f5;">
+      <div class="card" style="max-width:400px;width:100%;padding:2.5rem;">
+        <div style="text-align:center;margin-bottom:1.8rem;">
+          <div style="font-size:32px;margin-bottom:8px;">📋</div>
+          <div style="font-size:22px;font-weight:700;color:#111;">老客維繫 CRM</div>
+          <div style="font-size:13px;color:#888;margin-top:4px;">${isReg ? "建立新帳號" : "登入系統"}</div>
+        </div>
+        ${S.authError ? `<div style="padding:10px 14px;background:#FFF0F0;border-radius:8px;font-size:13px;color:#E24B4A;margin-bottom:14px;text-align:center;">${S.authError}</div>` : ""}
+        ${isReg ? `<div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">顯示名稱（電訪記錄中顯示）</label><input id="auth-display" class="inp" type="text" placeholder="例：小美、阿志" style="width:100%;"></div>` : ""}
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">帳號</label><input id="auth-user" class="inp" type="text" placeholder="輸入帳號" value="${S.loginForm.username}" style="width:100%;" autocomplete="username"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">密碼</label><input id="auth-pwd" class="inp" type="password" placeholder="輸入密碼" style="width:100%;" autocomplete="${isReg?"new-password":"current-password"}"></div>
+        ${isReg ? `<div style="margin-bottom:18px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">確認密碼</label><input id="auth-pwd2" class="inp" type="password" placeholder="再次輸入密碼" style="width:100%;"></div>` : `<div style="margin-bottom:18px;"></div>`}
+        <button id="auth-submit" class="pbtn" style="width:100%;padding:11px;font-size:15px;">${isReg ? "建立帳號" : "登入 →"}</button>
+        <div style="text-align:center;margin-top:14px;font-size:13px;color:#888;">
+          ${isReg
+            ? `已有帳號？<button id="toggle-auth" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:13px;font-family:inherit;">登入</button>`
+            : `沒有帳號？<button id="toggle-auth" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:13px;font-family:inherit;">建立帳號</button>`}
+        </div>
+        <div style="margin-top:12px;text-align:center;font-size:11px;color:#bbb;">${useFirebase ? "🟢 Firebase 即時同步" : "🟡 本機模式"}</div>
+      </div>
+    </div>`;
+
+    const syncForm = () => { S.loginForm.username = document.getElementById("auth-user")?.value||""; };
+
+    document.getElementById("toggle-auth").onclick = () => {
+      syncForm(); S.authView = isReg ? "login" : "register"; S.authError = ""; render();
+    };
+
+    document.getElementById("auth-submit").onclick = async () => {
+      const u = document.getElementById("auth-user")?.value.trim();
+      const p = document.getElementById("auth-pwd")?.value;
+      S.loginForm.username = u||"";
+      if (!u||!p) { S.authError="請填寫帳號和密碼"; render(); return; }
+
+      if (isReg) {
+        const d = document.getElementById("auth-display")?.value.trim() || u;
+        const p2 = document.getElementById("auth-pwd2")?.value;
+        if (p!==p2) { S.authError="兩次密碼不一致"; render(); return; }
+        if (p.length<4) { S.authError="密碼至少需要 4 個字元"; render(); return; }
+        const res = await registerAccount(u, p, d);
+        if (!res.ok) { S.authError=res.reason; render(); return; }
+        if (res.isFirst) {
+          S.user=d; S.userRole="admin"; S.setup=true; saveSession(); loadData();
+        } else {
+          S.authView="pending";
+        }
+        render();
+      } else {
+        const res = await tryLogin(u, p);
+        if (!res.ok) {
+          S.authError = res.reason==="pending" ? "帳號審核中，請等待管理員核准" : res.reason;
+          render(); return;
+        }
+        S.user=res.displayName; S.userRole=res.role; S.setup=true; S.authError="";
+        saveSession(); loadData(); render();
+      }
+    };
+
+    ["auth-user","auth-pwd","auth-pwd2","auth-display"].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.onkeydown=e=>{ if(e.key==="Enter") document.getElementById("auth-submit")?.click(); };
+    });
+    return;
+  }
+
+  const cs = custs();
+  const fl = cs.filter(c => {
+    const q = S.q.toLowerCase();
+    const minOk = S.fAmtMin==='' || c.amount >= parseFloat(S.fAmtMin);
+    const maxOk = S.fAmtMax==='' || c.amount <= parseFloat(S.fAmtMax);
+    return (!q||c.name.includes(q)||c.phone.includes(q)||(c.fb||"").toLowerCase().includes(q))
+      &&(!S.fSrc||c.source===S.fSrc)&&(!S.fGrade||c.grade===S.fGrade)&&(!S.fStatus||c.status===S.fStatus)
+      && minOk && maxOk;
+  });
+  const tp = Math.ceil(fl.length/PS)||1;
+  if (S.pg>=tp) S.pg=0;
+  const pg = fl.slice(S.pg*PS,(S.pg+1)*PS);
+  const vn=cs.filter(c=>c.grade==="VIP").length, pn=cs.filter(c=>c.status==="待跟進").length, dn=cs.filter(c=>c.status==="已完成").length;
+  const cl = Object.entries(S.calls).map(([id,v])=>({id,...v}))
+    .filter(c=>{
+      const q=S.cq.toLowerCase();
+      const notesMatch = q && (c.notes||[]).some(n=>(n.text||"").toLowerCase().includes(q));
+      return (!q||(c.clientName||"").includes(q)||(c.staff||"").includes(q)||(c.grade||"").includes(q)||notesMatch)
+        &&(!S.fcSt||c.status===S.fcSt)&&(!S.fcStf||c.staff===S.fcStf);
+    })
+    .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  const dc = S.detail ? cs.find(c=>c.id===S.detail) : null;
+
+  app.innerHTML = `
+  <div style="background:#fff;border-radius:12px;padding:1.5rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    ${renderHeader(cs.length,vn,pn,dn)}
+  </div>
+  <div style="background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    ${renderTabs()}
+    <div style="padding:1.2rem 1.5rem 1.5rem;">
+      <div style="display:flex;gap:16px;">
+        <div style="flex:1;min-width:0;">
+          ${S.tab==="import"  ? renderImport()         : ""}
+          ${S.tab==="clients" ? renderClients(fl,pg,tp) : ""}
+          ${S.tab==="calls"   ? renderCalls(cl)         : ""}
+          ${S.tab==="vip"     ? renderVIP()             : ""}
+        </div>
+        ${dc ? renderDetail(dc) : ""}
+      </div>
+    </div>
+  </div>
+  ${S.modal==="call" ? renderCallModal(cs) : ""}
+  ${S.modal==="note" ? renderNoteModal()   : ""}
+  ${S.confirmModal  ? renderConfirmModal() : ""}
+  `;
+  bindEvents(pg,cl,cs,fl,tp);
+}
+
+function renderHeader(tot,vip,pend,done) {
+  const mb = isMobile();
+  return `
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">
+    <div>
+      <div style="font-size:${mb?'16':'18'}px;font-weight:700;color:#111;">老客維繫 CRM</div>
+      <div style="font-size:11px;color:#888;margin-top:2px;display:flex;align-items:center;gap:5px;">
+        ${av(S.user,STAFF.indexOf(S.user),16)}
+        <span>${S.user}</span>
+        ${S.syncMsg ? `<span class="sync-badge">✓ ${S.syncMsg}</span>` : ""}
+        <span style="font-size:10px;color:#bbb;">${useFirebase?"🟢":"🟡"}</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      ${mb?"":`<button id="sw" class="sbtn" style="font-size:12px;">切換帳號</button>`}
+      <button id="iq" class="sbtn" style="font-size:12px;">匯入</button>
+      <button id="nc" class="pbtn" style="font-size:12px;">+ 新增電訪</button>
+      ${mb?`<button id="sw" class="sbtn" style="font-size:12px;">切換帳號</button>`:""}
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:${mb?'6':'10'}px;">
+    ${[["全部客戶",tot,"#111"],["VIP",vip,"#B87500"],["待跟進",pend,"#185FA5"],["已完成",done,"#3B6D11"]].map(([l,v,c])=>`
+    <div style="background:#f8f8f8;border-radius:10px;padding:${mb?'10px 10px':'14px 16px'};">
+      <div style="font-size:${mb?'10':'11'}px;color:#999;margin-bottom:4px;">${l}</div>
+      <div style="font-size:${mb?'18':'22'}px;font-weight:700;color:${c};">${v}</div>
+    </div>`).join("")}
+  </div>`;
+}
+
+function renderTabs() {
+  const mb = isMobile();
+  return `<div style="display:flex;border-bottom:1px solid #f0f0f0;padding:0 ${mb?'.75':'1.5'}rem;overflow-x:auto;">
+    ${[["import",mb?"📥":"📥 匯入名單"],["clients",mb?"👥":"👥 客戶名單"],["calls",mb?"📞":"📞 電訪記錄"],["vip",mb?"⭐":"⭐ VIP 規則"]].map(([k,l])=>`
+    <button class="tab-btn${S.tab===k?" active":""}" data-tab="${k}" style="${mb?'padding:8px 12px;font-size:12px;white-space:nowrap;':''}">${l}</button>`).join("")}
+  </div>`;
+}
+
+function renderImport() {
+  // ── 步驟 0：拖曳上傳（支援多檔） ──────────────────────────────
+  if (S.batchStep===0) return `
+  <div style="max-width:580px;">
+    <div style="font-size:13px;color:#888;margin-bottom:14px;">
+      可一次選取<strong style="color:#185FA5;">多個 Excel / CSV 檔案</strong>，系統依付款單號去重並跨檔案累加合併
+    </div>
+    <div class="drop-zone" id="dz">
+      <div style="font-size:36px;margin-bottom:10px;">📂</div>
+      <div style="font-size:15px;font-weight:600;color:#333;margin-bottom:5px;">點擊或拖曳上傳（可多選）</div>
+      <div style="font-size:13px;color:#999;margin-bottom:10px;">支援 .xlsx .xls .csv，可同時選取多個檔案</div>
+      <div style="display:inline-block;padding:7px 18px;background:#185FA5;color:#fff;border-radius:8px;font-size:13px;font-weight:500;">選擇檔案</div>
+      <input type="file" id="fi" accept=".xlsx,.xls,.csv" multiple style="display:none;">
+    </div>
+    ${S.fileQueue.length>0 ? renderFileQueue() : ""}
+    <div style="margin-top:1.2rem;border:1px solid #eee;border-radius:10px;padding:14px 16px;background:#fffef8;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:8px;">合併規則</div>
+      <div style="font-size:12px;color:#666;line-height:2.3;">
+        ✓ 以<strong>電話號碼</strong>識別同一客戶，跨檔案自動對應<br>
+        ✓ 同一<strong>付款單號</strong>的多筆商品只算一次付款<br>
+        ✓ 消費金額、付款筆數跨月份<strong>累加</strong>，不覆蓋<br>
+        ✓ 同一客戶出現在多個來源自動標記「多管道」
+      </div>
+    </div>
+    ${S.custs.length>0 ? `
+      <div style="margin-top:10px;padding:10px 14px;background:#eff8ff;border-radius:8px;font-size:13px;color:#185FA5;">
+        資料庫目前已有 <strong>${S.custs.length}</strong> 位客戶，本次上傳將累加合併
+      </div>
+      <div style="margin-top:6px;padding:8px 14px;background:#f8f8f8;border-radius:8px;font-size:12px;color:#888;display:flex;align-items:center;gap:6px;">
+        <span>🛡 防呆機制已記錄 <strong style="color:#333;">${S.importedPayIds.size.toLocaleString()}</strong> 筆付款單號，重複上傳會自動略過</span>
+      </div>` : ""}
+  </div>`;
+
+  // ── 步驟 1：欄位對應 ──────────────────────────────────────────
+  if (S.batchStep===1) {
+
+    // 門市格式：直接顯示確認畫面，不需欄位對應
+    if (S.storeFormatDetected) {
+      return `<div style="max-width:580px;">
+        <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:14px;">📦 偵測到門市銷售格式</div>
+        <div style="padding:14px 16px;background:#EAF3DE;border-radius:10px;border:1px solid #c6f6d5;margin-bottom:14px;">
+          <div style="font-size:13px;font-weight:600;color:#276749;margin-bottom:8px;">✓ 自動辨識成功，無需手動設定欄位</div>
+          <div style="font-size:12px;color:#555;line-height:1.9;">
+            • 來源自動標記為「<strong>門市</strong>」<br>
+            • 客戶識別：客戶代號（POS+電話）<br>
+            • 日期：民國年自動轉換<br>
+            • 僅計入「P 銷」類型，退貨自動排除<br>
+            • 防重複：單據號碼去重
+          </div>
+        </div>
+        ${renderFileQueue()}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="sbtn" id="ib1">← 重新選檔</button>
+          <button class="pbtn" id="start-import">開始匯入 ${S.fileQueue.length} 個檔案 →</button>
+        </div>
+      </div>`;
+    }
+
+    const fs = [
+      ["name","客戶姓名（必填）"],["phone","聯絡電話（必填）"],
+      ["amount","單筆消費金額"],["payments","付款單號（去重用）"],
+      ["orders","訂單編號"],["source","來源"],
+      ["lastDate","消費日期"],["fb","FB帳號"],
+      ["address","寄送地址"],
+      ["goodsName","商品名稱"],["qty","購買數量"],["unitPrice","單價"],
+    ];
+    const doneCount = S.fileQueue.filter(f=>f.status==="done").length;
+    return `<div style="max-width:580px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#333;">確認欄位對應</div>
+          <div style="font-size:12px;color:#888;margin-top:2px;">共 <strong>${S.fileQueue.length}</strong> 個檔案，將套用相同欄位對應</div>
+        </div>
+        <button id="add-more-files" class="sbtn" style="font-size:12px;display:flex;align-items:center;gap:5px;">
+          + 再加入檔案
+          <input type="file" id="fi2" accept=".xlsx,.xls,.csv" multiple style="display:none;">
+        </button>
+      </div>
+      ${renderFileQueue()}
+      <div style="padding:10px 14px;background:#fffbf0;border-radius:8px;border-left:3px solid #F59E0B;margin:14px 0;font-size:12px;color:#854F0B;">
+        <strong>付款單號</strong>請對應原始付款單號欄位（如 PA26XXXX），系統用此欄去除重複商品
+      </div>
+      ${fs.map(([f,l])=>`
+      <div style="display:grid;grid-template-columns:180px 1fr;gap:10px;margin-bottom:9px;align-items:center;">
+        <span style="font-size:13px;color:#555;">${l}</span>
+        <select class="sel fsel" data-f="${f}" style="width:100%;">
+          <option value="">（略過）</option>
+          ${S.hdrs.map(h=>`<option value="${h}"${S.fm[f]===h?" selected":""}>${h}</option>`).join("")}
+        </select>
+      </div>`).join("")}
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button class="sbtn" id="ib1">← 重新選檔</button>
+        <button class="pbtn" id="start-import">開始匯入 ${S.fileQueue.length} 個檔案 →</button>
+      </div>
+    </div>`;
+  }
+
+  // ── 步驟 2：處理中 ────────────────────────────────────────────
+  if (S.batchStep===2) {
+    const done  = S.fileQueue.filter(f=>f.status==="done"||f.status==="error").length;
+    const total = S.fileQueue.length;
+    const pct   = Math.round(done/total*100);
+    return `<div style="max-width:540px;">
+      <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:14px;">
+        正在匯入... ${done}/${total} 個檔案
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;"></div></div>
+      <div style="margin-top:14px;">
+        ${renderFileQueue()}
+      </div>
+    </div>`;
+  }
+
+  // ── 步驟 3：完成 ──────────────────────────────────────────────
+  const st = S.batchStats||{};
+  const errCount = S.fileQueue.filter(f=>f.status==="error").length;
+  return `<div style="max-width:540px;">
+    <div style="padding:1.5rem;background:#f0fff4;border-radius:12px;border:1px solid #c6f6d5;margin-bottom:1rem;">
+      <div style="font-size:17px;font-weight:700;color:#276749;margin-bottom:14px;">✓ 批次匯入完成！</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;">
+        ${[["檔案數",st.files||0,"個"],["累加更新",st.merged||0,"位"],["新增",st.added||0,"位"],["資料庫",st.total||0,"位"]].map(([l,v,u])=>`
+        <div style="background:#fff;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:11px;color:#888;margin-bottom:3px;">${l}</div>
+          <div style="font-size:20px;font-weight:700;color:#111;">${v}</div>
+          <div style="font-size:11px;color:#888;">${u}</div>
+        </div>`).join("")}
+      </div>
+      <!-- 防呆統計 -->
+      ${(st.skipped||0) > 0
+        ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#FFF8E1;border-radius:8px;font-size:12px;color:#854F0B;">
+             <span style="font-size:14px;">🛡</span>
+             <span>防呆機制攔截了 <strong>${st.skipped}</strong> 筆重複付款單，已略過不重複計算</span>
+           </div>`
+        : `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#F0FFF4;border-radius:8px;font-size:12px;color:#276749;">
+             <span style="font-size:14px;">🛡</span>
+             <span>防呆機制：無重複付款單，資料乾淨！</span>
+           </div>`
+      }
+      ${errCount>0 ? `<div style="margin-top:8px;font-size:12px;color:#E24B4A;">⚠ ${errCount} 個檔案讀取失敗，請檢查格式</div>` : ""}
+    </div>
+    <div style="padding:8px 12px;background:#f8f8f8;border-radius:8px;margin-bottom:12px;font-size:12px;color:#888;display:flex;justify-content:space-between;">
+      <span>累計已記錄付款單號</span>
+      <strong style="color:#333;">${S.importedPayIds.size.toLocaleString()} 筆</strong>
+    </div>
+    ${renderFileQueue()}
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="pbtn" id="go-clients">查看客戶名單 →</button>
+      <button class="sbtn" id="imp-again">繼續上傳更多檔案</button>
+    </div>
+  </div>`;
+}
+
+function renderFileQueue() {
+  if (!S.fileQueue.length) return "";
+  const icons = {pending:"📄", processing:"⏳", done:"✅", error:"❌"};
+  const labels = {pending:"等待中", processing:"處理中...", done:"完成", error:"失敗"};
+  return `<div class="file-queue">
+    ${S.fileQueue.map((f,i)=>`
+    <div class="file-item ${f.status}">
+      <span class="file-icon">${icons[f.status]||"📄"}</span>
+      <span class="file-name">${f.name}</span>
+      ${f.result ? `<span style="font-size:12px;color:${f.status==="error"?"#E24B4A":"#3B6D11"};">${f.result}</span>` : ""}
+      <span class="file-status ${f.status}">${labels[f.status]||""}</span>
+      ${(S.batchStep===0||S.batchStep===1)&&f.status==="pending" ? `<button class="rm-file" data-i="${i}" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:16px;padding:0 2px;">✕</button>` : ""}
+    </div>`).join("")}
+  </div>`;
+}
+
+function sortClients(fl) {
+  if (!S.sortCol) return fl;
+  return [...fl].sort((a,b) => {
+    let va, vb;
+    if (S.sortCol==="amount")   { va=a.amount;   vb=b.amount; }
+    else if (S.sortCol==="payments") { va=a.payments; vb=b.payments; }
+    else if (S.sortCol==="lastDate") { va=a.lastDate||""; vb=b.lastDate||""; }
+    else if (S.sortCol==="lastFollowDate") { va=a.lastFollowDate||""; vb=b.lastFollowDate||""; }
+    else if (S.sortCol==="name")     { va=a.name; vb=b.name; return S.sortDir*va.localeCompare(vb,"zh-TW"); }
+    else if (S.sortCol==="grade")    {
+      const o={"VIP":0,"一般":1,"新客":2};
+      va=o[a.grade]??1; vb=o[b.grade]??1;
+    }
+    else return 0;
+    return S.sortDir * (va>vb?1:va<vb?-1:0);
+  });
+}
+
+function thSort(label, col, w) {
+  const active = S.sortCol===col;
+  const arrow = active ? (S.sortDir===1?"▲":"▼") : "⬍";
+  const color = active ? "#185FA5" : "#999";
+  return `<th class="sort-th" data-col="${col}" style="width:${w}px;background:#f8f8f8;padding:9px 10px;text-align:left;font-weight:500;font-size:12px;color:${color};border-bottom:1px solid #eee;cursor:pointer;user-select:none;white-space:nowrap;">
+    ${label} <span style="font-size:10px;opacity:.7;">${arrow}</span>
+  </th>`;
+}
+function thPlain(label, w) {
+  return `<th style="width:${w}px;background:#f8f8f8;padding:9px 10px;text-align:left;font-weight:500;font-size:12px;color:#999;border-bottom:1px solid #eee;">${label}</th>`;
+}
+
+function renderClients(fl,pg,tp) {
+  const sorted = sortClients(fl);
+  const pgData = sorted.slice(S.pg*PS,(S.pg+1)*PS);
+  const sel=(id,val,opts)=>`<select id="${id}" class="sel" style="font-size:13px;">${opts.map(([v,l])=>`<option value="${v}"${val===v?" selected":""}>${l}</option>`).join("")}</select>`;
+  const mb = isMobile();
+  return `<div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+      <input id="qs" class="inp" style="flex:1;min-width:${mb?'100%':'180px'};" placeholder="搜尋姓名、電話、FB..." value="${S.q}">
+      ${sel("f-src",S.fSrc,[["","全部來源"],["直播","直播"],["門市","門市"],["門市+直播","門市+直播"]])}
+      ${sel("f-grade",S.fGrade,[["","全部等級"],["VIP","VIP"],["一般","一般"],["新客","新客"]])}
+      ${sel("f-status",S.fStatus,[["","全部狀態"],["待跟進","待跟進"],["已指派","已指派"],["已完成","已完成"]])}
+    </div>
+    ${mb ? `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;gap:4px;margin-bottom:6px;">
+        ${[["1萬↓","0","10000"],["1-3萬","10000","30000"],["3-5萬","30000","50000"],["5萬↑","50000",""]].map(([l,mn,mx])=>{
+          const active = S.fAmtMin===mn && S.fAmtMax===mx;
+          return `<button class="amt-preset" data-min="${mn}" data-max="${mx}" style="flex:1;padding:7px 2px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${active?"#185FA5":"#ddd"};background:${active?"#E6F1FB":"#fff"};color:${active?"#185FA5":"#888"};">${l}</button>`;
+        }).join("")}
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;">
+        <input id="f-amt-min" class="inp" type="number" placeholder="最低金額" value="${S.fAmtMin}" style="flex:1;padding:7px 9px;font-size:13px;">
+        <span style="color:#bbb;flex-shrink:0;">—</span>
+        <input id="f-amt-max" class="inp" type="number" placeholder="最高金額" value="${S.fAmtMax}" style="flex:1;padding:7px 9px;font-size:13px;">
+        <button id="amt-search" style="padding:7px 12px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;cursor:pointer;flex-shrink:0;">搜索</button>
+        ${(S.fAmtMin||S.fAmtMax)?`<button id="clear-amt" style="padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;cursor:pointer;background:none;color:#888;flex-shrink:0;">✕</button>`:""}
+      </div>
+    </div>` : `
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:12px;color:#888;white-space:nowrap;">消費金額：</span>
+      <div style="display:flex;align-items:center;gap:6px;flex:1;flex-wrap:wrap;">
+        <input id="f-amt-min" class="inp" type="number" placeholder="最低 NT$" value="${S.fAmtMin}" style="width:100px;padding:6px 9px;font-size:13px;">
+        <span style="color:#bbb;">—</span>
+        <input id="f-amt-max" class="inp" type="number" placeholder="最高 NT$" value="${S.fAmtMax}" style="width:100px;padding:6px 9px;font-size:13px;">
+        <button id="amt-search" style="padding:6px 14px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500;">搜索</button>
+        ${(S.fAmtMin||S.fAmtMax)?`<button id="clear-amt" style="padding:5px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;cursor:pointer;background:none;color:#888;">清除</button>`:""}
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          ${[["1萬以下","0","10000"],["1-3萬","10000","30000"],["3-5萬","30000","50000"],["5萬以上","50000",""]].map(([l,mn,mx])=>{
+            const active = S.fAmtMin===mn && S.fAmtMax===mx;
+            return `<button class="amt-preset" data-min="${mn}" data-max="${mx}" style="padding:4px 9px;border-radius:6px;font-size:11px;cursor:pointer;white-space:nowrap;border:1px solid ${active?"#185FA5":"#ddd"};background:${active?"#E6F1FB":"none"};color:${active?"#185FA5":"#888"};">${l}</button>`;
+          }).join("")}
+        </div>
+      </div>
+    </div>`}
+
+    ${fl.length===0 ? `<div style="text-align:center;padding:3rem;color:#bbb;font-size:14px;">${S.custs.length===0?"尚未匯入資料，請點「匯入名單」":"沒有符合條件的客戶"}</div>` :
+    mb ? `
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${pgData.map(c=>`
+      <div class="cr" data-id="${c.id}" style="background:#fff;border-radius:10px;padding:12px 14px;border:1px solid #eee;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:15px;font-weight:600;color:#185FA5;">${c.name}</span>
+            ${gb(c.grade)}
+          </div>
+          <button class="cbn" data-name="${c.name}" data-stop="1" style="padding:4px 10px;border:1px solid #185FA5;border-radius:5px;font-size:12px;cursor:pointer;background:none;color:#185FA5;flex-shrink:0;">電訪</button>
+        </div>
+        ${c.fb&&c.fb!=="—"?`<div style="font-size:12px;color:#185FA5;margin-bottom:4px;opacity:.7;">${c.fb}</div>`:""}
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:4px;">
+          <span style="color:#333;font-weight:600;">NT$${Math.round(c.amount).toLocaleString()}</span>
+          <span style="color:#888;">${c.payments}筆 · 消費 ${fmtD(c.lastDate)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px;">
+          <span style="color:#aaa;">${c.source}${c.staff?` · ${c.staff}`:""}</span>
+          ${c.lastFollowDate?`<span style="color:#3B6D11;">跟進 ${c.lastFollowDate}</span>`:`<span style="color:#ddd;">未跟進</span>`}
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          ${sb(c.status)}
+        </div>
+      </div>`).join("")}
+    </div>` : `
+    <div style="border:1px solid #eee;border-radius:10px;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;">
+        <thead><tr>
+          ${thSort("姓名","name",80)}
+          ${thPlain("FB帳號",85)}
+          ${thSort("等級","grade",55)}
+          ${thPlain("來源",55)}
+          ${thSort("消費總額","amount",80)}
+          ${thSort("付款","payments",45)}
+          ${thPlain("負責人",70)}
+          ${thSort("最後消費","lastDate",78)}
+          ${thSort("最後跟進","lastFollowDate",78)}
+          ${thPlain("狀態",60)}
+          ${thPlain("操作",58)}
+        </tr></thead>
+        <tbody>${pgData.map(c=>`<tr class="cr" data-id="${c.id}" style="cursor:pointer;">
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#185FA5;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.fb||"—"}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;">${gb(c.grade)}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.source}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#333;font-weight:500;">NT$${Math.round(c.amount).toLocaleString()}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#333;">${c.payments}筆</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;">${c.staff?`<div style="display:flex;align-items:center;gap:4px;">${av(c.staff,STAFF.indexOf(c.staff),24)}<span style="font-size:12px;color:#555;">${c.staff}</span></div>`:`<span style="font-size:12px;color:#ccc;">未指派</span>`}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;">${fmtD(c.lastDate)}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:${c.lastFollowDate?"#3B6D11":"#ccc"};">${c.lastFollowDate||"—"}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;">${sb(c.status)}</td>
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;" data-stop="1"><button class="cbn" data-name="${c.name}" style="padding:3px 8px;border:1px solid #185FA5;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#185FA5;">電訪</button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#999;">
+      <span>共 ${fl.length} 筆 · 第 ${S.pg+1}/${tp} 頁</span>
+      ${S.sortCol&&!mb?`<span style="color:#185FA5;">依「${{"name":"姓名","grade":"等級","amount":"消費總額","payments":"付款筆數","lastDate":"最後消費","lastFollowDate":"最後跟進"}[S.sortCol]}」${S.sortDir===1?"升冪":"降冪"}</span>`:""}
+      <button class="sbtn" id="pp" style="padding:4px 10px;font-size:12px;" ${S.pg===0?"disabled":""}>上一頁</button>
+      <button class="sbtn" id="pn" style="padding:4px 10px;font-size:12px;" ${S.pg>=tp-1?"disabled":""}>下一頁</button>
+    </div>
+  </div>`;
+}
+
+function renderCalls(cl) {
+  return `<div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <input id="cqs" class="inp" style="flex:1;min-width:200px;" placeholder="搜尋客戶姓名、FB帳號、負責人、備註內容..." value="${S.cq}">
+      <select id="fcs" class="sel"><option value="">全部狀態</option>${["待跟進","已指派","已完成"].map(v=>`<option${S.fcSt===v?" selected":""}>${v}</option>`).join("")}</select>
+      <select id="fcsf" class="sel"><option value="">全部人員</option>${S.staffList.map(s=>`<option${S.fcStf===s?" selected":""}>${s}</option>`).join("")}</select>
+    </div>
+    ${cl.length===0 ? `<div style="text-align:center;padding:4rem;color:#bbb;font-size:14px;">尚無電訪記錄</div>` : `
+    <div style="display:flex;gap:16px;">
+      <!-- 左側：電訪列表 -->
+      <div style="flex:1;min-width:0;">
+        <div style="border:1px solid #eee;border-radius:10px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;">
+            <thead><tr>${[["客戶",85],["負責人",75],["預定時間",88],["狀態",62],["最新備註",145],["操作",80]].map(([h,w])=>`<th style="width:${w}px;background:#f8f8f8;padding:9px 10px;text-align:left;font-weight:500;font-size:12px;color:#999;border-bottom:1px solid #eee;">${h}</th>`).join("")}</tr></thead>
+            <tbody>${cl.map(c=>{
+              const last=c.notes&&c.notes.length>0?c.notes[c.notes.length-1]:null;
+              const isSelected = S.selectedCall===c.id;
+              return`<tr class="clr" data-id="${c.id}" style="cursor:pointer;background:${isSelected?"#f0f8ff":""};">
+                <td style="padding:9px 10px;border-bottom:1px solid #eee;font-weight:500;color:${isSelected?"#185FA5":"#333"};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.clientName||"—"}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #eee;">${c.staff?`<div style="display:flex;align-items:center;gap:4px;">${av(c.staff,S.staffList.indexOf(c.staff),22)}<span style="font-size:12px;color:#555;">${c.staff}</span></div>`:`<span style="font-size:12px;color:#ccc;">待指派</span>`}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;">${c.callTime?c.callTime.replace("T"," ").slice(0,16):"—"}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #eee;">${sb(c.status||"待跟進")}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${last?`${last.who}：${last.text}`:"—"}</td>
+                <td style="padding:9px 10px;border-bottom:1px solid #eee;" data-stop="1">
+                  ${c.status!=="已完成"
+                    ?`<button class="dbn" data-id="${c.id}" style="padding:3px 8px;border:1px solid #3B6D11;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#3B6D11;">完成+備註</button>`
+                    :`<button class="vbn" data-id="${c.id}" style="padding:3px 8px;border:1px solid #185FA5;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#185FA5;">查看</button>`}
+                </td>
+              </tr>`;}).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 右側：電訪流水帳 -->
+      ${S.selectedCall ? renderCallTimeline(cl.find(c=>c.id===S.selectedCall)) : `
+      <div style="width:260px;flex-shrink:0;border:1px solid #eee;border-radius:10px;background:#fff;padding:1.2rem;display:flex;align-items:center;justify-content:center;">
+        <div style="text-align:center;color:#ccc;">
+          <div style="font-size:28px;margin-bottom:8px;">📋</div>
+          <div style="font-size:13px;">點選左側任一筆<br>查看電訪流水帳</div>
+        </div>
+      </div>`}
+    </div>`}
+  </div>`;
+}
+
+function renderCallTimeline(c) {
+  if (!c) return "";
+  const notes = c.notes || [];
+  return `<div style="width:280px;flex-shrink:0;border:1px solid #eee;border-radius:10px;background:#fff;padding:1.2rem;align-self:flex-start;max-height:75vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+      <div>
+        <div style="font-size:14px;font-weight:600;color:#111;">${c.clientName||"—"}</div>
+        <div style="font-size:12px;color:#888;margin-top:2px;display:flex;align-items:center;gap:5px;">
+          ${c.staff ? `${av(c.staff,S.staffList.indexOf(c.staff),16)}<span>${c.staff}</span>` : ""}
+          ${sb(c.status||"待跟進")}
+        </div>
+      </div>
+      <button id="close-call-timeline" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:18px;">✕</button>
+    </div>
+    ${c.callTime?`<div style="font-size:12px;color:#888;margin-bottom:12px;padding:6px 10px;background:#f8f8f8;border-radius:6px;">⏰ 預定：${c.callTime.replace("T"," ").slice(0,16)}</div>`:""}
+
+    <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">電訪記錄 (${notes.length} 筆)</div>
+
+    ${notes.length===0
+      ? `<div style="font-size:13px;color:#ccc;padding:8px 0;text-align:center;">尚無電訪記錄</div>`
+      : `<div style="position:relative;">
+          <div style="position:absolute;left:9px;top:0;bottom:0;width:1px;background:#eee;"></div>
+          ${notes.map((n,i)=>{
+            const isEditing = S.editNote && S.editNote.callId===c.id && S.editNote.idx===i;
+            return `
+            <div style="position:relative;padding-left:26px;margin-bottom:12px;">
+              <div style="position:absolute;left:3px;top:5px;width:13px;height:13px;border-radius:50%;background:${i===notes.length-1?"#185FA5":"#ddd"};border:2px solid #fff;box-shadow:0 0 0 1px ${i===notes.length-1?"#185FA5":"#ddd"};"></div>
+              <div style="background:#f8f8f8;border-radius:8px;padding:8px 10px;">
+                ${isEditing ? `
+                  <textarea id="edit-note-txt" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-size:12px;resize:vertical;min-height:55px;margin-bottom:6px;font-family:inherit;">${n.text||""}</textarea>
+                  <div style="display:flex;gap:5px;">
+                    <button class="note-edit-save" data-id="${c.id}" data-idx="${i}" style="flex:1;padding:4px 8px;background:#111;color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer;">儲存</button>
+                    <button class="note-edit-cancel" style="flex:1;padding:4px 8px;border:1px solid #ddd;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#888;">取消</button>
+                  </div>
+                ` : `
+                  <div style="font-size:13px;color:#333;line-height:1.5;">${n.text||"—"}</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">
+                    <span style="font-size:11px;color:#aaa;">${n.who||S.user} · ${n.date||""}</span>
+                    <div style="display:flex;gap:4px;">
+                      <button class="note-edit-btn" data-id="${c.id}" data-idx="${i}" data-text="${encodeURIComponent(n.text||"")}"
+                        style="padding:2px 7px;border:1px solid #ddd;border-radius:4px;font-size:10px;cursor:pointer;background:none;color:#888;">✏ 編輯</button>
+                      <button class="note-del-btn" data-id="${c.id}" data-idx="${i}"
+                        style="padding:2px 7px;border:1px solid #fcc;border-radius:4px;font-size:10px;cursor:pointer;background:none;color:#E24B4A;">✕ 刪除</button>
+                    </div>
+                  </div>
+                `}
+              </div>
+            </div>`;
+          }).join("")}
+        </div>`
+    }
+
+    <!-- 快速新增備註 -->
+    ${c.status!=="已完成" ? `
+    <div style="border-top:1px solid #f0f0f0;padding-top:10px;margin-top:8px;">
+      <textarea id="call-quick-note" class="inp" placeholder="新增備註..." style="width:100%;resize:vertical;min-height:60px;font-size:12px;padding:7px 9px;margin-bottom:6px;"></textarea>
+      <div style="display:flex;gap:6px;">
+        <button id="call-add-note" data-id="${c.id}" class="sbtn" style="flex:1;font-size:12px;padding:6px;">新增備註</button>
+        <button id="call-done-btn" data-id="${c.id}" class="pbtn" style="flex:1;font-size:12px;padding:6px;">完成電訪</button>
+      </div>
+    </div>` : `
+    <div style="border-top:1px solid #f0f0f0;padding-top:10px;margin-top:8px;">
+      <textarea id="call-quick-note" class="inp" placeholder="補充備註..." style="width:100%;resize:vertical;min-height:60px;font-size:12px;padding:7px 9px;margin-bottom:6px;"></textarea>
+      <button id="call-add-note" data-id="${c.id}" class="sbtn" style="width:100%;font-size:12px;padding:6px;">新增備註</button>
+    </div>`}
+  </div>`;
+}
+
+// ── 掃描並修復重複付款單 ───────────────────────────────────────────
+function scanDuplicates() {
+  let mismatch = 0;
+  const globalPids = {};
+
+  S.custs.forEach(c => {
+    const pds = c.payDetails || {};
+    const detailCount = Object.keys(pds).length;
+
+    // 情況1：有 payDetails，檢查是否與 payments/amount 一致
+    if (detailCount > 0) {
+      const correctAmt = Object.values(pds).reduce((s, p) => s + (p.amount||0), 0);
+      if (c.payments !== detailCount || Math.round(c.amount) !== Math.round(correctAmt)) {
+        mismatch++;
+      }
+    }
+
+    // 情況2：付款筆數不合理（超過當月可能購買次數，估計上限50）
+    if (!detailCount && c.payments > 50) mismatch++;
+
+    // 情況3：跨客戶重複 payId
+    Object.keys(pds).forEach(pid => {
+      globalPids[pid] = (globalPids[pid] || 0) + 1;
+    });
+  });
+
+  const crossDups = Object.entries(globalPids).filter(([,n]) => n > 1).map(([pid]) => pid);
+  return { mismatch, crossDups };
+}
+
+async function fixDuplicates() {
+  let fixedCusts = 0;
+
+  // ── Step A: 跨客戶重複 payId → 保留金額較大者 ──────────────────
+  const globalPidMap = {};
+  S.custs.forEach((c, ci) => {
+    Object.entries(c.payDetails || {}).forEach(([pid, pd]) => {
+      if (!globalPidMap[pid]) {
+        globalPidMap[pid] = { ci, amount: pd.amount || 0 };
+      } else {
+        const ex = globalPidMap[pid];
+        if ((pd.amount || 0) >= ex.amount) {
+          delete S.custs[ex.ci].payDetails[pid];
+          globalPidMap[pid] = { ci, amount: pd.amount || 0 };
+        } else {
+          delete c.payDetails[pid];
+        }
+      }
+    });
+  });
+
+  // ── Step B: 每位客戶重算 amount 和 payments ────────────────────
+  S.custs.forEach(c => {
+    const pds = c.payDetails || {};
+    const pidList = Object.keys(pds);
+
+    if (pidList.length > 0) {
+      // 有 payDetails → 以明細為唯一真相重算
+      const correctAmount   = pidList.reduce((s, pid) => s + (pds[pid].amount || 0), 0);
+      const correctPayments = pidList.length;
+      const correctOrders   = pidList.reduce((s, pid) => s + ((pds[pid].items||[]).length || 1), 0);
+
+      if (c.payments !== correctPayments || Math.round(c.amount) !== Math.round(correctAmount)) {
+        c.amount   = correctAmount;
+        c.payments = correctPayments;
+        c.orders   = Math.max(correctOrders, correctPayments);
+        fixedCusts++;
+      }
+
+      // 修正 firstDate / lastDate
+      const dates = pidList.map(pid => pds[pid].date||"").filter(Boolean).sort();
+      if (dates.length > 0) {
+        c.firstDate = dates[0];
+        c.lastDate  = dates[dates.length - 1];
+      }
+    } else {
+      // 沒有 payDetails（舊資料）→ 無法從明細推算，但可以
+      // 偵測 payments 是否是整數倍（重複匯入的典型特徵）
+      // 用 GCD 算法猜測最可能的原始筆數
+      if (c.payments > 0 && c.amount > 0) {
+        const repeats = detectRepeats(c.payments, c.amount);
+        if (repeats > 1) {
+          c.payments = Math.round(c.payments / repeats);
+          c.amount   = Math.round(c.amount   / repeats);
+          c.orders   = Math.round((c.orders  || c.payments) / repeats);
+          fixedCusts++;
+        }
+      }
+    }
+  });
+
+  // ── Step C: 重建 importedPayIds ───────────────────────────────
+  const allPids = new Set();
+  S.custs.forEach(c => Object.keys(c.payDetails || {}).forEach(pid => allPids.add(pid)));
+  S.importedPayIds = allPids;
+
+  await Promise.all([savCustomers(), saveImportedPayIds()]);
+  return fixedCusts;
+}
+
+// 偵測重複次數：若 payments 能被 2~10 整除且 amount/payments 接近整數，判定為重複
+function detectRepeats(payments, amount) {
+  for (let r = 10; r >= 2; r--) {
+    if (payments % r === 0) {
+      const perPay = amount / payments;
+      // 每筆付款金額接近整數 = 有可能是重複匯入
+      if (Math.abs(perPay - Math.round(perPay)) < 1) {
+        return r;
+      }
+    }
+  }
+  return 1;
+}
+
+function renderVIP() {
+  const { mismatch, crossDups } = scanDuplicates();
+  const hasDup = mismatch > 0 || crossDups.length > 0;
+  const custsWithDetails = S.custs.filter(c => Object.keys(c.payDetails||{}).length > 0).length;
+
+  return `<div style="max-width:500px;">
+    <div style="font-size:13px;color:#888;margin-bottom:1rem;">設定後即時同步給所有夥伴，符合任一條件即標記 VIP</div>
+    ${[["amt","消費總額達","NT$","","跨月份累計消費超過門檻"],["cnt","付款筆數達","","筆","跨月份累計付款次數超過門檻"]].map(([f,l,pre,suf,sub])=>`
+    <div style="background:#f8f8f8;border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;">
+      <div style="flex:1;font-size:13px;color:#333;">${l}<span style="display:block;color:#999;font-size:12px;margin-top:2px;">${sub}</span></div>
+      <div style="display:flex;align-items:center;gap:5px;">
+        ${pre?`<span style="font-size:13px;color:#999;">${pre}</span>`:""}
+        <input id="r-${f}" type="number" value="${S.rules[f]}" class="inp" style="width:90px;">
+        ${suf?`<span style="font-size:13px;color:#999;">${suf}</span>`:""}
+      </div>
+    </div>`).join("")}
+    <button id="sr" class="pbtn" style="margin-top:6px;">儲存並同步給所有夥伴</button>
+
+    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:12px;">夥伴電訪統計</div>
+      ${STAFF.map((s,i)=>{const all=Object.values(S.calls).filter(c=>c.staff===s);const done=all.filter(c=>c.status==="已完成").length;return`
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;">
+        ${av(s,i,32)}<span style="flex:1;font-size:13px;color:#333;font-weight:500;">${s}</span>
+        <span style="font-size:12px;color:#999;">指派 ${all.length} 筆</span>
+        <span style="font-size:12px;color:#3B6D11;margin-left:10px;font-weight:500;">完成 ${done} 筆</span>
+      </div>`;}).join("")}
+    </div>
+
+    <!-- 🛡 資料清理 -->
+    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:8px;">🛡 資料防呆清理</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">
+        掃描資料庫中重複的付款單號，自動扣除多計的金額和筆數
+      </div>
+
+      <!-- 掃描結果 -->
+      ${hasDup ? `
+      <div style="padding:12px 14px;background:#FFF8E1;border-radius:10px;border:1px solid #FFE082;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:6px;">⚠ 發現重複資料需要修復</div>
+        <div style="font-size:12px;color:#854F0B;margin-bottom:4px;line-height:1.9;">
+          ${mismatch > 0 ? `• <strong>${mismatch}</strong> 位客戶的付款筆數與明細不符（因重複匯入累加）<br>` : ""}
+          ${crossDups.length > 0 ? `• <strong>${crossDups.length}</strong> 個付款單號出現在多位客戶<br>` : ""}
+        </div>
+        <div style="font-size:11px;color:#a06020;margin-bottom:10px;">修復後系統將依付款明細重新計算每位客戶的正確金額和筆數</div>
+        <button id="fix-dup-btn" class="pbtn" style="background:#854F0B;font-size:12px;padding:6px 14px;">立即修復重複資料</button>
+      </div>` : `
+      <div style="padding:10px 14px;background:#F0FFF4;border-radius:10px;border:1px solid #c6f6d5;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:16px;">✅</span>
+        <div>
+          <div style="font-size:13px;font-weight:500;color:#276749;">資料乾淨，無重複付款單</div>
+          <div style="font-size:11px;color:#888;margin-top:2px;">已記錄 ${S.importedPayIds.size.toLocaleString()} 筆付款單號 · ${custsWithDetails} 位客戶有消費明細</div>
+        </div>
+      </div>`}
+
+      <button id="scan-btn" class="sbtn" style="font-size:12px;">重新掃描</button>
+    </div>
+
+    <!-- 來源批次修正 -->
+    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:6px;">來源批次修正</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;">把舊的來源標籤（FB、多管道等）一鍵更新為新標籤</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        ${[["FB → 直播","FB","直播"],["直播+FB → 直播","直播+FB","直播"],["多管道 → 直播","多管道","直播"],["LINE → 直播","LINE","直播"],["IG → 直播","IG","直播"]].map(([label,from,to])=>`
+        <button class="src-fix-btn" data-from="${from}" data-to="${to}"
+          style="padding:5px 12px;border:1px solid #ddd;border-radius:6px;font-size:12px;cursor:pointer;background:#f8f8f8;color:#555;">
+          ${label}
+        </button>`).join("")}
+      </div>
+      <div style="font-size:11px;color:#bbb;">點擊後立即套用並同步，不可還原</div>
+    </div>
+
+    <!-- 備註人員修復 -->
+    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:6px;">備註人員修復</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;">若備註顯示「我」而非正確人名，可在此修復。請輸入原本操作那批備註的人名：</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="fix-who-from" class="inp" placeholder="要替換的名字（如：我）" style="width:150px;padding:6px 9px;font-size:13px;">
+        <span style="color:#bbb;font-size:13px;">→</span>
+        <input id="fix-who-to" class="inp" placeholder="正確人名（如：小雯）" style="width:150px;padding:6px 9px;font-size:13px;">
+        <button id="fix-who-btn" class="pbtn" style="font-size:12px;padding:6px 14px;">修復</button>
+      </div>
+    </div>
+
+    <!-- 帳號管理（僅 admin） -->
+    ${S.userRole==="admin" ? `
+    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:4px;">🔐 帳號管理</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">審核待加入的夥伴帳號</div>
+      <div id="account-list-area"><div style="font-size:13px;color:#bbb;">載入中...</div></div>
+    </div>` : ""}
+
+    <!-- 危險操作 -->
+    ${S.userRole==="admin" ? `
+    <div style="margin-top:1.8rem;border-top:1px solid #eee;padding-top:1.5rem;">
+      <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:8px;">危險操作</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="reset-btn" style="padding:7px 14px;border:1px solid #E24B4A;border-radius:8px;font-size:13px;cursor:pointer;background:none;color:#E24B4A;font-family:inherit;">清空所有客戶資料</button>
+        <button id="reset-pids-btn" style="padding:7px 14px;border:1px solid #E24B4A;border-radius:8px;font-size:13px;cursor:pointer;background:none;color:#E24B4A;font-family:inherit;">重置付款單記錄</button>
+      </div>
+    </div>` : ""}
+  </div>`;
+}
+
+function renderDetail(c) {
+  const payDetails = c.payDetails || {};
+  const payList = Object.entries(payDetails)
+    .map(([pid, pd]) => ({pid, ...pd}))
+    .sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  const editing = S.editingDetail;
+  const ef = S.editForm;
+
+  return `<div style="width:330px;flex-shrink:0;border:1px solid #eee;border-radius:12px;background:#fff;padding:1.3rem;align-self:flex-start;max-height:90vh;overflow-y:auto;">
+
+    <!-- 頂部：頭像 + 姓名 + 關閉 -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        ${av(c.name,0,42)}
+        <div>
+          <div style="font-size:15px;font-weight:600;color:#111;">${c.name}</div>
+          <div style="margin-top:4px;">${gb(c.grade)}</div>
+        </div>
+      </div>
+      <button id="cd" style="background:none;border:none;cursor:pointer;font-size:20px;color:#ccc;padding:2px;">✕</button>
+    </div>
+
+    <!-- 基本資料 -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="sec-hd" style="margin-bottom:0;">基本資料</div>
+        ${editing
+          ? `<div style="display:flex;gap:6px;">
+               <button id="detail-save" data-id="${c.id}" style="padding:2px 9px;border:1px solid #3B6D11;border-radius:5px;font-size:11px;cursor:pointer;background:#EAF3DE;color:#3B6D11;">儲存</button>
+               <button id="detail-cancel" style="padding:2px 9px;border:1px solid #ddd;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#888;">取消</button>
+             </div>`
+          : `<button id="detail-edit" data-id="${c.id}" style="padding:2px 9px;border:1px solid #ddd;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#888;">✏ 編輯</button>`
+        }
+      </div>
+
+      ${editing ? `
+        <!-- 編輯模式 -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">收件人</label>
+            <input id="ef-name" class="inp" value="${ef.name||c.name}" style="width:100%;padding:6px 9px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">電話</label>
+            <input id="ef-phone" class="inp" value="${ef.phone||c.phone||""}" style="width:100%;padding:6px 9px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">FB 帳號</label>
+            <input id="ef-fb" class="inp" value="${ef.fb||c.fb||""}" style="width:100%;padding:6px 9px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">來源</label>
+            <select id="ef-source" class="sel" style="width:100%;">
+              ${["直播","門市","門市+直播","其他"].map(s=>`<option value="${s}"${(ef.source||c.source)===s?" selected":""}>${s}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">收件地址</label>
+            <textarea id="ef-address" class="inp" style="width:100%;padding:6px 9px;font-size:13px;resize:vertical;min-height:60px;">${ef.address||c.address||""}</textarea>
+          </div>
+        </div>
+      ` : `
+        <!-- 顯示模式 -->
+        <div class="kv"><span class="kv-k">收件人</span><span class="kv-v">${c.name}</span></div>
+        <div class="kv"><span class="kv-k">電話</span><span class="kv-v">${c.phone||"—"}</span></div>
+        <div class="kv"><span class="kv-k">FB 帳號</span><span class="kv-v" style="color:#185FA5;">${c.fb||"—"}</span></div>
+        <div class="kv"><span class="kv-k">來源</span><span class="kv-v">${c.source}</span></div>
+        ${c.address ? `<div class="kv" style="align-items:flex-start;"><span class="kv-k" style="flex-shrink:0;margin-top:1px;">收件地址</span><span class="kv-v" style="text-align:right;line-height:1.6;word-break:break-all;">${c.address}</span></div>` : ""}
+      `}
+    </div>
+
+    <!-- 消費摘要 -->
+    <div style="margin-bottom:14px;">
+      <div class="sec-hd">消費摘要</div>
+      ${[["消費總額",`NT$${Math.round(c.amount).toLocaleString()}`],["付款筆數",`${c.payments} 筆`],["首次消費",fmtD(c.firstDate)],["最後消費",fmtD(c.lastDate)]].map(([k,v])=>`<div class="kv"><span class="kv-k">${k}</span><span class="kv-v">${v}</span></div>`).join("")}
+    </div>
+
+    <!-- 消費明細流水帳 -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="sec-hd" style="margin-bottom:0;">消費流水帳${payList.length>0?` <span style="color:#185FA5;font-size:10px;text-transform:none;letter-spacing:0;">(${payList.length} 筆)</span>`:""}</div>
+        ${payList.length>1 ? `<button id="expand-all" style="padding:2px 8px;border:1px solid #ddd;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#888;">全部展開</button>` : ""}
+      </div>
+      ${payList.length===0
+        ? `<div style="background:#f8f8f8;border-radius:8px;padding:14px;text-align:center;">
+             <div style="font-size:13px;color:#bbb;margin-bottom:4px;">尚無明細資料</div>
+             <div style="font-size:11px;color:#ccc;">重新匯入 Excel（含商品名稱欄位）即可顯示完整流水帳</div>
+           </div>`
+        : `<div style="position:relative;">
+            <!-- 時間軸線 -->
+            <div style="position:absolute;left:11px;top:0;bottom:0;width:1px;background:#eee;"></div>
+            ${payList.map((p,i)=>{
+              const isOpen = S.expandedPays[p.pid] !== false; // 預設展開
+              const hasItems = p.items && p.items.length > 0;
+              const pidLabel = p.pid.startsWith("ord-")||p.pid.startsWith("i") ? `訂單 #${p.pid.slice(-4)}` : p.pid;
+              return `
+              <div style="position:relative;padding-left:28px;margin-bottom:12px;">
+                <!-- 時間軸圓點 -->
+                <div style="position:absolute;left:5px;top:8px;width:13px;height:13px;border-radius:50%;background:${i===0?"#185FA5":"#ddd"};border:2px solid #fff;box-shadow:0 0 0 1px ${i===0?"#185FA5":"#ddd"};"></div>
+
+                <!-- 付款單卡片 -->
+                <div style="border:1px solid #eee;border-radius:8px;overflow:hidden;background:#fff;">
+                  <!-- 標頭：點擊展開/收合 -->
+                  <div class="pay-toggle" data-pid="${p.pid}" style="padding:8px 10px;cursor:${hasItems||p.address?'pointer':'default'};display:flex;justify-content:space-between;align-items:center;background:${isOpen?'#fff':'#fafafa'};">
+                    <div style="display:flex;flex-direction:column;gap:1px;">
+                      <span style="font-size:12px;font-weight:600;color:#333;">${pidLabel}</span>
+                      <span style="font-size:11px;color:#aaa;">${fmtD(p.date)}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <span style="font-size:13px;font-weight:600;color:#185FA5;">NT$${Math.round(p.amount).toLocaleString()}</span>
+                      ${hasItems||p.address ? `<span style="font-size:10px;color:#bbb;transition:transform .15s;display:inline-block;transform:rotate(${isOpen?'90':'0'}deg);">▶</span>` : ""}
+                    </div>
+                  </div>
+
+                  <!-- 展開內容 -->
+                  ${isOpen ? `
+                  <div style="border-top:1px solid #f0f0f0;">
+                    ${p.address ? `
+                    <div style="padding:6px 10px;background:#fffef8;border-bottom:1px solid #f5f5f5;display:flex;gap:5px;align-items:flex-start;">
+                      <span style="font-size:11px;color:#bbb;flex-shrink:0;margin-top:1px;">📦</span>
+                      <span style="font-size:11px;color:#888;line-height:1.5;">${p.address}</span>
+                    </div>` : ""}
+                    ${hasItems ? `
+                    <div style="padding:4px 10px 6px;">
+                      ${p.items.map((item,ii)=>`
+                      <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;${ii<p.items.length-1?'border-bottom:1px dashed #f5f5f5;':''}">
+                        <span style="font-size:12px;color:#333;flex:1;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.name}</span>
+                        <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">
+                          ${item.qty>1 ? `<span style="font-size:11px;color:#aaa;">×${item.qty}</span>` : ""}
+                          <span style="font-size:12px;color:#555;">NT$${Math.round(item.amount || item.unitPrice*item.qty || 0).toLocaleString()}</span>
+                        </div>
+                      </div>`).join("")}
+                    </div>` : `<div style="padding:8px 10px;font-size:12px;color:#ccc;">無商品明細</div>`}
+                  </div>` : ""}
+                </div>
+              </div>`;
+            }).join("")}
+           </div>`
+      }
+    </div>
+
+    <!-- 跟進狀態 -->
+    <div style="margin-bottom:14px;">
+      <div class="sec-hd">跟進狀態</div>
+      ${[["負責人",c.staff||"未指派"],["狀態",c.status],["預定時間",c.callTime||"—"]].map(([k,v])=>`<div class="kv"><span class="kv-k">${k}</span><span class="kv-v">${v}</span></div>`).join("")}
+    </div>
+
+    <!-- 電訪記錄 -->
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="sec-hd" style="margin-bottom:0;">電訪記錄</div>
+        <button id="dcb" data-name="${c.name}" style="padding:2px 8px;border:1px solid #185FA5;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#185FA5;">+ 指派</button>
+      </div>
+      ${c.notes.length===0
+        ? `<div style="font-size:13px;color:#ddd;padding:4px 0;">尚無電訪記錄</div>`
+        : c.notes.map((n,i)=>{
+            const isEditing = S.editNote && S.editNote.callId===c.id && S.editNote.idx===i;
+            return `<div class="note-box">
+              ${isEditing ? `
+                <textarea id="edit-note-txt" style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-size:12px;resize:vertical;min-height:55px;margin-bottom:6px;font-family:inherit;">${n.text||""}</textarea>
+                <div style="display:flex;gap:5px;">
+                  <button class="note-edit-save" data-id="${c.id}" data-idx="${i}" style="flex:1;padding:4px 8px;background:#111;color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer;">儲存</button>
+                  <button class="note-edit-cancel" style="flex:1;padding:4px 8px;border:1px solid #ddd;border-radius:5px;font-size:11px;cursor:pointer;background:none;color:#888;">取消</button>
+                </div>
+              ` : `
+                <div class="note-txt">${n.text}</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                  <span class="note-meta" style="margin-top:0;">${n.who||S.user} · ${n.date}</span>
+                  <div style="display:flex;gap:4px;">
+                    <button class="note-edit-btn" data-id="${c.id}" data-idx="${i}" data-text="${encodeURIComponent(n.text||"")}"
+                      style="padding:2px 7px;border:1px solid #ddd;border-radius:4px;font-size:10px;cursor:pointer;background:none;color:#888;">✏</button>
+                    <button class="note-del-btn" data-id="${c.id}" data-idx="${i}"
+                      style="padding:2px 7px;border:1px solid #fcc;border-radius:4px;font-size:10px;cursor:pointer;background:none;color:#E24B4A;">✕</button>
+                  </div>
+                </div>
+              `}
+            </div>`;
+          }).join("")}
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <input id="qn" class="inp" placeholder="新增備註..." value="${S.noteText}" style="flex:1;font-size:12px;padding:6px 9px;">
+        <button id="sn" data-id="${c.id}" class="pbtn" style="padding:6px 11px;font-size:12px;">送出</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderConfirmModal() {
+  const cm = S.confirmModal;
+  if (!cm) return "";
+  return `<div class="overlay" style="z-index:300;">
+  <div class="modal" style="max-width:380px;">
+    <div style="font-size:22px;text-align:center;margin-bottom:12px;">⚠️</div>
+    <div style="font-size:14px;font-weight:600;color:#111;text-align:center;margin-bottom:8px;">${cm.title||"確認操作"}</div>
+    <div style="font-size:13px;color:#888;text-align:center;margin-bottom:1.5rem;line-height:1.7;">${cm.msg}</div>
+    <div style="display:flex;gap:8px;justify-content:center;">
+      <button id="cm-cancel" class="sbtn" style="flex:1;padding:10px;">取消</button>
+      <button id="cm-confirm" style="flex:1;padding:10px;background:#E24B4A;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;">${cm.confirmLabel||"確認"}</button>
+    </div>
+  </div></div>`;
+}
+
+function showConfirm(title, msg, confirmLabel, onConfirm) {
+  S.confirmModal = { title, msg, confirmLabel, onConfirm };
+  render();
+}
+
+function renderCallModal(cs) {
+  return `<div class="overlay">
+  <div class="modal" style="max-width:500px;">
+    <div style="font-size:16px;font-weight:700;color:#111;margin-bottom:1.2rem;">新增電訪任務</div>
+    <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">客戶姓名</label>
+      <input id="fc-c" list="cnl" value="${S.fc.client}" placeholder="輸入姓名搜尋..." class="inp" style="width:100%;">
+      <datalist id="cnl">${cs.slice(0,300).map(c=>`<option value="${c.name}">`).join("")}</datalist>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;color:#888;display:block;margin-bottom:6px;">指派給</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        ${S.staffList.map(s=>`
+        <div style="display:flex;align-items:center;gap:3px;">
+          <div class="sc" data-s="${s}" style="padding:6px 12px;border-radius:20px;font-size:13px;border:1px solid ${S.fc.staff===s?"#111":"#ddd"};cursor:pointer;background:${S.fc.staff===s?"#111":"#fff"};color:${S.fc.staff===s?"#fff":"#333"};">${s}</div>
+          <button class="rm-staff" data-s="${s}" title="移除" style="background:none;border:none;cursor:pointer;color:#ddd;font-size:14px;padding:0 2px;line-height:1;">✕</button>
+        </div>`).join("")}
+      </div>
+      <div style="display:flex;gap:6px;">
+        <input id="new-staff-inp" class="inp" placeholder="新增人員名稱..." value="${S.addStaffInput}"
+          style="flex:1;padding:6px 9px;font-size:13px;">
+        <button id="add-staff-btn" style="padding:6px 12px;background:#f0f0f0;border:1px solid #ddd;border-radius:8px;font-size:12px;cursor:pointer;color:#333;white-space:nowrap;">+ 新增</button>
+      </div>
+    </div>
+    <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">預定跟進時間</label>
+      <input id="fc-t" type="datetime-local" value="${S.fc.time}" class="inp" style="width:100%;"></div>
+    <div style="margin-bottom:12px;"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">備註（選填）</label>
+      <textarea id="fc-n" class="inp" style="width:100%;resize:vertical;min-height:70px;">${S.fc.note}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="mc" class="sbtn">取消</button>
+      <button id="ms" class="pbtn">儲存並同步</button>
+    </div>
+  </div></div>`;
+}
+
+function renderNoteModal() {
+  const c = S.noteTarget; if (!c) return "";
+  return `<div class="overlay">
+  <div class="modal">
+    <div style="font-size:16px;font-weight:700;color:#111;margin-bottom:4px;">完成電訪：${c.clientName||"客戶"}</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;">記錄本次重點，儲存後同步給所有夥伴</div>
+    <textarea id="nt" class="inp" style="width:100%;resize:vertical;min-height:90px;margin-bottom:14px;" placeholder="例：客戶反應良好，有意加購保養組...">${S.noteText}</textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="nc2" class="sbtn">取消</button>
+      <button id="ns" class="pbtn">標記完成並同步</button>
+    </div>
+  </div></div>`;
+}
+
+// ── Events ────────────────────────────────────────────────────────────
+function bindEvents(pg,cl,cs,fl,tp) {
+  const $ = id => document.getElementById(id);
+  const on = (id,fn) => { const el=$(id); if(el) el.onclick=fn; };
+
+  on("sw", () => {
+    S.setup=false; S.user=""; S.userRole=""; S.authView="login"; S.authError="";
+    try { localStorage.removeItem("crm:session"); } catch(e) {}
+    render();
+  });
+  on("iq", () => { S.tab="import"; S.batchStep=0; S.fileQueue=[]; render(); });
+  on("nc", () => { S.modal="call"; render(); });
+
+  // ── 帳號管理（admin 才有）──
+  if (S.userRole==="admin" && S.tab==="vip") {
+    const area = document.getElementById("account-list-area");
+    if (area) {
+      getAccounts().then(accounts => {
+        const list = Object.entries(accounts);
+        if (list.length===0) { area.innerHTML=`<div style="font-size:13px;color:#bbb;">尚無帳號</div>`; return; }
+        area.innerHTML = `<div style="border:1px solid #eee;border-radius:10px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr>${["顯示名稱","帳號","角色","狀態","操作"].map(h=>`<th style="background:#f8f8f8;padding:8px 10px;text-align:left;font-size:12px;color:#999;border-bottom:1px solid #eee;">${h}</th>`).join("")}</tr></thead>
+            <tbody>
+              ${list.map(([uname,acc])=>`<tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;">${acc.displayName||uname}</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;color:#888;font-size:12px;">${uname}</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;">
+                  <span style="padding:2px 7px;border-radius:4px;font-size:11px;background:${acc.role==="admin"?"#FFF3CC":"#f0f0f0"};color:${acc.role==="admin"?"#8A5C00":"#555"};">
+                    ${acc.role==="admin"?"👑 管理員":"一般"}
+                  </span>
+                </td>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;">
+                  <span style="padding:2px 7px;border-radius:4px;font-size:11px;background:${acc.status==="active"?"#EAF3DE":acc.status==="pending"?"#FFF8E1":"#FAECE7"};color:${acc.status==="active"?"#3B6D11":acc.status==="pending"?"#854F0B":"#993C1D"};">
+                    ${acc.status==="active"?"已啟用":acc.status==="pending"?"待審核":"已拒絕"}
+                  </span>
+                </td>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;">
+                  <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                    ${acc.status==="pending" ? `
+                      <button class="acc-approve" data-u="${uname}" style="padding:3px 8px;border:1px solid #3B6D11;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#3B6D11;">✓ 核准</button>
+                      <button class="acc-reject"  data-u="${uname}" style="padding:3px 8px;border:1px solid #E24B4A;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#E24B4A;">✕ 拒絕</button>
+                    ` : ""}
+                    ${acc.role!=="admin" && acc.status==="active" ? `
+                      <button class="acc-promote" data-u="${uname}" style="padding:3px 8px;border:1px solid #185FA5;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#185FA5;">升為管理員</button>
+                    ` : ""}
+                    ${uname !== S.loginForm.username ? `
+                      <button class="acc-delete" data-u="${uname}" style="padding:3px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;cursor:pointer;background:none;color:#888;">刪除</button>
+                    ` : ""}
+                  </div>
+                </td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+
+        // 核准
+        area.querySelectorAll(".acc-approve").forEach(b => b.onclick = async () => {
+          const accounts = await getAccounts();
+          if (accounts[b.dataset.u]) { accounts[b.dataset.u].status="active"; await saveAccounts(accounts); render(); }
+        });
+        // 拒絕
+        area.querySelectorAll(".acc-reject").forEach(b => b.onclick = async () => {
+          const accounts = await getAccounts();
+          if (accounts[b.dataset.u]) { accounts[b.dataset.u].status="rejected"; await saveAccounts(accounts); render(); }
+        });
+        // 升為管理員
+        area.querySelectorAll(".acc-promote").forEach(b => b.onclick = async () => {
+          const accounts = await getAccounts();
+          if (accounts[b.dataset.u]) { accounts[b.dataset.u].role="admin"; await saveAccounts(accounts); render(); }
+        });
+        // 刪除
+        area.querySelectorAll(".acc-delete").forEach(b => b.onclick = () => {
+          showConfirm("刪除帳號", `確定要刪除帳號「${b.dataset.u}」嗎？`, "刪除", async () => {
+            const accounts = await getAccounts();
+            delete accounts[b.dataset.u];
+            await saveAccounts(accounts); render();
+          });
+        });
+      });
+    }
+  }
+  document.querySelectorAll(".tab-btn").forEach(b => b.onclick=()=>{ S.tab=b.dataset.tab; S.pg=0; render(); });
+
+  // ── 拖曳區 ──
+  const dz=$("dz"), fi=$("fi");
+  if (dz && fi) {
+    dz.onclick = e => { if(e.target!==fi) fi.click(); };
+    fi.onchange = e => {
+      if (e.target.files.length) {
+        addFilesToQueue(e.target.files);
+        render();
+      }
+    };
+    dz.ondragover = e => { e.preventDefault(); dz.classList.add("over"); };
+    dz.ondragleave = () => dz.classList.remove("over");
+    dz.ondrop = e => {
+      e.preventDefault(); dz.classList.remove("over");
+      if (e.dataTransfer.files.length) {
+        addFilesToQueue(e.dataTransfer.files);
+        render();
+      }
+    };
+  }
+
+  // ── 再加入檔案按鈕 ──
+  const amf = $("add-more-files"), fi2 = $("fi2");
+  if (amf && fi2) {
+    amf.onclick = e => { e.stopPropagation(); fi2.click(); };
+    fi2.onchange = e => {
+      if (e.target.files.length) { addFilesToQueue(e.target.files); render(); }
+    };
+  }
+
+  // ── 移除單一檔案 ──
+  document.querySelectorAll(".rm-file").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const i = parseInt(b.dataset.i);
+    S.fileQueue.splice(i, 1);
+    if (S.fileQueue.length === 0) S.batchStep = 0;
+    render();
+  });
+
+  // ── 欄位對應步驟 ──
+  on("ib1", () => { S.batchStep=0; S.fileQueue=[]; S.hdrs=[]; render(); });
+  document.querySelectorAll(".fsel").forEach(s => s.onchange=()=>{ S.fm[s.dataset.f]=s.value; });
+  on("start-import", () => {
+    document.querySelectorAll(".fsel").forEach(s=>{ S.fm[s.dataset.f]=s.value; });
+    runBatchImport();
+  });
+
+  // ── 完成後 ──
+  on("go-clients", () => { S.tab="clients"; render(); });
+  on("imp-again",  () => { S.batchStep=0; S.fileQueue=[]; S.hdrs=[]; S.batchStats=null; render(); });
+
+  // ── 客戶名單篩選 ──
+  const qs=$("qs"); if(qs) qs.oninput=()=>{ S.q=qs.value; S.pg=0; render(); };
+  const fs=$("f-src");  if(fs)  fs.onchange=()=>{ S.fSrc=fs.value;   S.pg=0; render(); };
+  const fg=$("f-grade"); if(fg) fg.onchange=()=>{ S.fGrade=fg.value; S.pg=0; render(); };
+  const fst=$("f-status"); if(fst) fst.onchange=()=>{ S.fStatus=fst.value; S.pg=0; render(); };
+
+  // 金額篩選 - 按搜索才觸發
+  on("amt-search", ()=>{
+    const mn=$("f-amt-min"); const mx=$("f-amt-max");
+    S.fAmtMin=mn?mn.value:""; S.fAmtMax=mx?mx.value:"";
+    S.pg=0; render();
+  });
+  const famn=$("f-amt-min"); if(famn) famn.onkeydown=e=>{ if(e.key==="Enter") document.getElementById("amt-search")?.click(); };
+  const famx=$("f-amt-max"); if(famx) famx.onkeydown=e=>{ if(e.key==="Enter") document.getElementById("amt-search")?.click(); };
+  on("clear-amt", ()=>{ S.fAmtMin=""; S.fAmtMax=""; S.pg=0; render(); });
+  document.querySelectorAll(".amt-preset").forEach(b => b.onclick=()=>{
+    // 再點一次同一個 → 取消
+    if (S.fAmtMin===b.dataset.min && S.fAmtMax===b.dataset.max) {
+      S.fAmtMin=""; S.fAmtMax="";
+    } else {
+      S.fAmtMin=b.dataset.min; S.fAmtMax=b.dataset.max;
+    }
+    S.pg=0; render();
+  });
+  on("pp", () => { S.pg=Math.max(0,S.pg-1);     render(); });
+  on("pn", () => { S.pg=Math.min(tp-1,S.pg+1);  render(); });
+
+  document.querySelectorAll(".sort-th").forEach(th => th.onclick=()=>{
+    const col = th.dataset.col;
+    if (S.sortCol===col) S.sortDir *= -1;
+    else { S.sortCol=col; S.sortDir=-1; }
+    S.pg=0; render();
+  });
+  document.querySelectorAll(".cr").forEach(r => r.onclick=e=>{
+    if(e.target.closest("[data-stop]")) return;
+    S.detail=r.dataset.id;
+    S.editingDetail=false;
+    S.editForm={};
+    S.expandedPays={};
+    render();
+  });
+  document.querySelectorAll(".cbn").forEach(b => b.onclick=e=>{ e.stopPropagation(); S.fc={...S.fc,client:b.dataset.name,staff:S.user||STAFF[0]}; S.modal="call"; render(); });
+
+  // ── 電訪篩選 ──
+  const cqs=$("cqs");  if(cqs)  cqs.oninput=()=>{ S.cq=cqs.value; render(); };
+  const fcs=$("fcs");  if(fcs)  fcs.onchange=()=>{ S.fcSt=fcs.value;  render(); };
+  const fcsf=$("fcsf"); if(fcsf) fcsf.onchange=()=>{ S.fcStf=fcsf.value; render(); };
+  document.querySelectorAll(".dbn").forEach(b => b.onclick=e=>{ e.stopPropagation(); const c=cl.find(x=>x.id===b.dataset.id); S.noteTarget=c; S.noteText=""; S.modal="note"; render(); });
+  document.querySelectorAll(".vbn").forEach(b => b.onclick=e=>{ e.stopPropagation(); S.selectedCall=b.dataset.id; render(); });
+
+  // ── VIP 規則 ──
+  on("sr", () => { const a=$("r-amt"),c=$("r-cnt"); if(a&&c){ S.rules={amt:parseInt(a.value)||5000,cnt:parseInt(c.value)||3}; savRules(); render(); } });
+  on("scan-btn", () => render());
+  // 來源批次修正
+  document.querySelectorAll(".src-fix-btn").forEach(b => b.onclick = async () => {
+    const from = b.dataset.from;
+    const to   = b.dataset.to;
+    let count = 0;
+    S.custs.forEach(c => {
+      if (c.source === from) { c.source = to; count++; }
+    });
+    if (count > 0) {
+      await savCustomers();
+      b.textContent = `✓ 已修正 ${count} 筆`;
+      b.style.background = "#EAF3DE";
+      b.style.color = "#3B6D11";
+      b.style.borderColor = "#c6f6d5";
+    } else {
+      b.textContent = "無此來源";
+      b.style.color = "#bbb";
+    }
+  });
+
+  on("fix-who-btn", async () => {
+    const from = document.getElementById("fix-who-from")?.value.trim();
+    const to   = document.getElementById("fix-who-to")?.value.trim();
+    if (!from || !to) return;
+    let fixed = 0;
+    Object.values(S.calls).forEach(cl => {
+      (cl.notes||[]).forEach(n => {
+        if (n.who === from) { n.who = to; fixed++; }
+      });
+      if (cl.staff === from) cl.staff = to;
+    });
+    if (fixed > 0) {
+      await savCalls();
+      showConfirm("修復完成", `已將 ${fixed} 筆備註的「${from}」更新為「${to}」`, "確認", ()=>{});
+    } else {
+      showConfirm("找不到資料", `沒有找到人名為「${from}」的備註`, "確認", ()=>{});
+    }
+    render();
+  }); // 重新掃描就是重新 render
+  on("fix-dup-btn", async () => {
+    const n = await fixDuplicates();
+    showConfirm(
+      n > 0 ? "修復完成" : "資料正常",
+      n > 0 ? `共修正 ${n} 位客戶的付款筆數和消費金額，資料已同步儲存。` : "資料已是最新狀態，無需修復。",
+      "確認",
+      () => {}
+    );
+    render();
+  });
+  on("reset-pids-btn", () => {
+    showConfirm(
+      "重置付款單記錄",
+      "重置後下次匯入將不會去重，適合需要重新建立所有資料的情況。",
+      "確認重置",
+      () => { S.importedPayIds=new Set(); saveImportedPayIds(); render(); }
+    );
+  });
+  on("reset-btn", () => {
+    showConfirm(
+      "清空所有客戶資料",
+      "將清除所有客戶、電訪記錄與付款單資料。\n此動作無法復原！",
+      "確認清空",
+      () => {
+        S.custs=[]; S.calls={}; S.importedPayIds=new Set();
+        savCustomers(); savCalls(); saveImportedPayIds();
+        S.tab="import"; render();
+      }
+    );
+  });
+
+  // 確認 Modal 按鈕
+  on("cm-cancel",  () => { S.confirmModal=null; render(); });
+  on("cm-confirm", () => {
+    const fn = S.confirmModal?.onConfirm;
+    S.confirmModal = null;
+    if (fn) fn();
+  });
+
+  // ── 詳情面板 ──
+  // 消費流水帳展開/收合
+  document.querySelectorAll(".pay-toggle").forEach(el => {
+    el.onclick = () => {
+      const pid = el.dataset.pid;
+      // 預設展開，第一次點擊收合
+      S.expandedPays[pid] = S.expandedPays[pid] === false ? true : false;
+      render();
+    };
+  });
+  const ea = document.getElementById("expand-all");
+  if (ea) ea.onclick = () => {
+    const dc2 = S.detail ? custs().find(c=>c.id===S.detail) : null;
+    if (!dc2) return;
+    const pays = Object.keys(dc2.payDetails||{});
+    const allOpen = pays.every(pid => S.expandedPays[pid] !== false);
+    pays.forEach(pid => { S.expandedPays[pid] = allOpen ? false : true; });
+    render();
+  };
+
+  on("cd", () => { S.detail=null; S.noteText=""; S.editingDetail=false; S.editForm={}; render(); });
+
+  // 基本資料編輯
+  on("detail-edit", () => {
+    const c = cs.find(x=>x.id===S.detail);
+    if (!c) return;
+    S.editingDetail = true;
+    S.editForm = { name:c.name, phone:c.phone||"", fb:c.fb||"", source:c.source||"", address:c.address||"" };
+    render();
+  });
+  on("detail-cancel", () => { S.editingDetail=false; S.editForm={}; render(); });
+  on("detail-save", async () => {
+    const id = document.getElementById("detail-save")?.dataset.id;
+    if (!id) return;
+    const idx = S.custs.findIndex(x=>x.id===id);
+    if (idx === -1) return;
+    // 讀取編輯表單值
+    const newName    = document.getElementById("ef-name")?.value.trim() || S.custs[idx].name;
+    const newPhone   = document.getElementById("ef-phone")?.value.trim() || "";
+    const newFb      = document.getElementById("ef-fb")?.value.trim() || "";
+    const newSource  = document.getElementById("ef-source")?.value || S.custs[idx].source;
+    const newAddress = document.getElementById("ef-address")?.value.trim() || "";
+    S.custs[idx] = { ...S.custs[idx], name:newName, phone:newPhone, fb:newFb, source:newSource, address:newAddress };
+    // 同步 callMap 裡的 clientName
+    Object.values(S.calls).forEach(cl => { if (cl.clientName === S.custs[idx].name || cl.clientName === newName) cl.clientName = newName; });
+    S.editingDetail = false;
+    S.editForm = {};
+    await savCustomers();
+    render();
+  });
+  on("dcb", () => { const b=$("dcb"); S.fc={...S.fc,client:b.dataset.name,staff:S.user||STAFF[0]}; S.modal="call"; S.detail=null; render(); });
+  on("sn", async () => {
+    const qn=$("qn"); if(!qn||!qn.value.trim()) return;
+    const id=$("sn").dataset.id, ex=S.calls[id]||{};
+    const who = ex.staff || S.user;
+    const note={who, date:new Date().toLocaleDateString("zh-TW"), text:qn.value.trim()};
+    const c=cs.find(x=>x.id===id);
+    S.calls[id]={...ex, notes:[...(ex.notes||[]),note], clientName:c?.name||ex.clientName, grade:c?.grade||ex.grade, updatedAt:Date.now()};
+    S.noteText=""; await savCalls(); render();
+  });
+  const qn=$("qn"); if(qn) qn.oninput=()=>{ S.noteText=qn.value; };
+
+  // ── 電訪 Modal ──
+  document.querySelectorAll(".sc").forEach(c => c.onclick=()=>{ S.fc.staff=c.dataset.s; render(); });
+
+  // 新增人員
+  on("add-staff-btn", async () => {
+    const inp = document.getElementById("new-staff-inp");
+    const name = inp?.value.trim();
+    if (!name) return;
+    if (S.staffList.includes(name)) { inp.value=""; return; }
+    S.staffList.push(name);
+    S.addStaffInput="";
+    S.fc.staff = name;
+    await saveStaffList();
+    render();
+  });
+  const nsi = document.getElementById("new-staff-inp");
+  if (nsi) {
+    nsi.oninput = () => { S.addStaffInput = nsi.value; };
+    nsi.onkeydown = e => { if(e.key==="Enter") document.getElementById("add-staff-btn")?.click(); };
+  }
+
+  // 移除人員
+  document.querySelectorAll(".rm-staff").forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const name = b.dataset.s;
+    S.staffList = S.staffList.filter(s=>s!==name);
+    if (S.fc.staff===name) S.fc.staff = S.staffList[0]||"";
+    await saveStaffList();
+    render();
+  });
+
+  // 電訪列表點選 → 流水帳
+  document.querySelectorAll(".clr").forEach(r => r.onclick=e=>{
+    if(e.target.closest("[data-stop]")) return;
+    S.selectedCall = S.selectedCall===r.dataset.id ? null : r.dataset.id;
+    render();
+  });
+  on("close-call-timeline", ()=>{ S.selectedCall=null; render(); });
+
+  // 備註：點編輯按鈕 → 進入編輯模式
+  document.querySelectorAll(".note-edit-btn").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    S.editNote = { callId: b.dataset.id, idx: parseInt(b.dataset.idx), text: decodeURIComponent(b.dataset.text||"") };
+    render();
+  });
+
+  // 備註：取消編輯
+  document.querySelectorAll(".note-edit-cancel").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    S.editNote = null; render();
+  });
+
+  // 備註：儲存編輯
+  document.querySelectorAll(".note-edit-save").forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const id = b.dataset.id;
+    const idx = parseInt(b.dataset.idx);
+    const newText = document.getElementById("edit-note-txt")?.value.trim();
+    if (!newText) return;
+    const ex = S.calls[id];
+    if (!ex) return;
+    const notes = [...(ex.notes||[])];
+    notes[idx] = { ...notes[idx], text: newText, editedBy: S.user, editedAt: new Date().toLocaleDateString("zh-TW") };
+    S.calls[id] = { ...ex, notes, updatedAt: Date.now() };
+    S.editNote = null;
+    await savCalls(); render();
+  });
+
+  // 備註：刪除
+  document.querySelectorAll(".note-del-btn").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const id = b.dataset.id;
+    const idx = parseInt(b.dataset.idx);
+    showConfirm("刪除備註", "確定要刪除這筆備註嗎？", "刪除", async () => {
+      const ex = S.calls[id];
+      if (!ex) return;
+      const notes = (ex.notes||[]).filter((_,i) => i!==idx);
+      S.calls[id] = { ...ex, notes, updatedAt: Date.now() };
+      await savCalls(); render();
+    });
+  });
+
+  // 流水帳快速新增備註（只記錄備註，不更動負責人）
+  on("call-add-note", async ()=>{
+    const id = document.getElementById("call-add-note")?.dataset.id;
+    const txt = document.getElementById("call-quick-note")?.value.trim();
+    if (!id||!txt) return;
+    const ex = S.calls[id]||{};
+    const who = ex.staff || S.user;
+    const note = {who, date:new Date().toLocaleDateString("zh-TW"), text:txt};
+    S.calls[id] = {...ex, notes:[...(ex.notes||[]),note], updatedAt:Date.now()};
+    await savCalls(); render();
+  });
+
+  // 流水帳直接完成電訪（只更新狀態，不改負責人）
+  on("call-done-btn", async ()=>{
+    const id = document.getElementById("call-done-btn")?.dataset.id;
+    const txt = document.getElementById("call-quick-note")?.value.trim();
+    if (!id) return;
+    const ex = S.calls[id]||{};
+    const who = ex.staff || S.user;
+    const notes = txt ? [...(ex.notes||[]), {who, date:new Date().toLocaleDateString("zh-TW"), text:txt}] : (ex.notes||[]);
+    S.calls[id] = {...ex, status:"已完成", notes, updatedAt:Date.now()};
+    await savCalls(); render();
+  });
+
+  on("mc", () => { S.modal=null; render(); });
+  on("ms", async () => {
+    const cl=$("fc-c")?.value?.trim(); if(!cl) return;
+    const t=$("fc-t")?.value||"", n=$("fc-n")?.value||"";
+    const c=cs.find(x=>x.name===cl); if(!c){ alert("找不到此客戶，請確認姓名"); return; }
+    const notes=n?[{who:S.fc.staff,date:new Date().toLocaleDateString("zh-TW"),text:n}]:[];
+    S.calls[c.id]={...(S.calls[c.id]||{}),staff:S.fc.staff,status:"已指派",callTime:t,clientName:cl,grade:c.grade,notes:[...(S.calls[c.id]?.notes||[]),...notes],updatedAt:Date.now()};
+    S.modal=null; S.fc={client:"",staff:S.user||STAFF[0],time:"",note:""};
+    await savCalls(); render();
+  });
+  on("nc2", () => { S.modal=null; S.noteTarget=null; S.noteText=""; render(); });
+  on("ns", async () => {
+    const t=$("nt")?.value||"", c=S.noteTarget; if(!c) return;
+    const who = (S.calls[c.id]?.staff) || c.staff || S.user;
+    const note={who, date:new Date().toLocaleDateString("zh-TW"), text:t};
+    S.calls[c.id]={...(S.calls[c.id]||c), status:"已完成", notes:[...(c.notes||[]),note], updatedAt:Date.now()};
+    S.modal=null; S.noteTarget=null; S.noteText=""; await savCalls(); render();
+  });
+  const nt=$("nt"); if(nt) nt.oninput=()=>{ S.noteText=nt.value; };
+}
+
+// ── 登入狀態持久化 ────────────────────────────────────────────────────
+function saveSession() {
+  try {
+    localStorage.setItem("crm:session", JSON.stringify({
+      user: S.user,
+      userRole: S.userRole,
+      setup: S.setup,
+    }));
+  } catch(e) {}
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem("crm:session");
+    if (!raw) return false;
+    const sess = JSON.parse(raw);
+    if (sess.setup && sess.user) {
+      S.user = sess.user;
+      S.userRole = sess.userRole || "staff";
+      S.setup = true;
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+initFirebase();
+if (!useFirebase) {
+  setTimeout(() => { if (S.setup) loadData(); }, 100);
+  setInterval(() => { if (!S.setup||useFirebase||S.modal) return; loadData(); }, 15000);
+}
+
+// 嘗試恢復登入狀態
+if (loadSession()) {
+  loadData();
+}
+render();
+</script>
+</body>
+</html>

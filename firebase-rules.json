@@ -1,0 +1,20 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "crm": {
+      "accounts": {
+        ".read": true,
+        ".write": true,
+        "$uname": {
+          ".validate": "newData.hasChildren(['password','role','status']) && newData.child('password').isString() && newData.child('role').val().matches(/^(admin|staff)$/) && newData.child('status').val().matches(/^(active|pending|rejected)$/)"
+        }
+      },
+      "customers":      { ".read": true, ".write": true },
+      "calls":          { ".read": true, ".write": true },
+      "rules":          { ".read": true, ".write": true },
+      "importedPayIds": { ".read": true, ".write": true },
+      "staffList":      { ".read": true, ".write": true }
+    }
+  }
+}
