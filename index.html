@@ -1952,8 +1952,9 @@ function bindEvents(pg,cl,cs,fl,tp) {
     S.staffList.push(name);
     S.addStaffInput="";
     S.fc.staff = name;
-    await saveStaffList();
     render();
+    try { await saveStaffList(); }
+    catch (e) { alert("無法儲存到 Firebase：" + (e?.message||e) + "\n\n請檢查 Firebase 規則是否允許寫入 crm/staffList"); console.error(e); }
   });
   const nsi = document.getElementById("new-staff-inp");
   if (nsi) {
