@@ -159,6 +159,7 @@ let S = {
   hdrs:[], fm:{name:"",phone:"",amount:"",payments:"",orders:"",source:"",lastDate:"",firstDate:"",fb:"",goodsName:"",qty:"",unitPrice:"",address:""},
   batchStats:null,
   storeFormatDetected: false,
+  importSource: "直播",   // 來源標記："直播" | "門市"，會根據自動偵測調整、使用者可手動覆寫
   importedPayIds: new Set(),  // 已匯入的付款單號，防止重複累加
 };
 
@@ -368,7 +369,8 @@ function rocToAD(s) {
 }
 
 // 門市資料專用解析：rows 來自「明細」工作表
-function storeRowsToCustMap(rows) {
+function storeRowsToCustMap(rows, sourceLabel) {
+  const src = sourceLabel || "門市";
   const custMap = {};
   rows.forEach(r => {
     const custId = String(r["客戶代號"]||"").trim().toUpperCase();
@@ -378,7 +380,7 @@ function storeRowsToCustMap(rows) {
 
     if (!custMap[key]) custMap[key] = {
       name, phone: custId,
-      fb:"", source:"門市", address:"",
+      fb:"", source:src, address:"",
       payIds: new Set(),
       orderIds: new Set(),
       totalAmt: 0,
@@ -446,7 +448,8 @@ function autoDetectFields(hdrs) {
 }
 
 // ── 把 rows 彙整成客戶 Map ─────────────────────────────────────────
-function rowsToCustMap(rows, fm) {
+function rowsToCustMap(rows, fm, sourceLabel) {
+  const src = sourceLabel || "直播";
   const custMap = {};
   let skippedPayIds = 0;  // 因全域去重跳過的付款單數
 
@@ -458,7 +461,7 @@ function rowsToCustMap(rows, fm) {
     if (!custMap[key]) custMap[key] = {
       name, phone,
       fb: String(r[fm.fb]||""),
-      source: cleanSrc(r[fm.source]),
+      source: src,
       address: "",
       payIds: new Set(),
       orderIds: new Set(),
@@ -615,17 +618,17 @@ async function readFirstHeaders() {
   try {
     const {hdrs, storeFormat} = await readFileToRows(first.file);
     if (storeFormat) {
-      // 門市格式：自動辨識，直接跳到步驟2執行
       first.detectedFormat = "門市";
-      // 標記所有檔案，讓步驟1提示
       S.batchStep = 1;
       S.hdrs = [];
       S.storeFormatDetected = true;
+      S.importSource = "門市";    // 自動偵測 → 預設門市
     } else {
       S.hdrs = hdrs;
       S.fm = autoDetectFields(hdrs);
       S.storeFormatDetected = false;
       S.batchStep = 1;
+      S.importSource = "直播";    // 一般格式 → 預設直播
     }
     render();
   } catch(e) {
@@ -651,17 +654,17 @@ async function runBatchImport() {
       let custMap, skippedPayIds;
       if (storeFormat) {
         // 門市格式：專用解析
-        item.detectedFormat = "門市";
-        ({custMap, skippedPayIds} = storeRowsToCustMap(rows));
+        item.detectedFormat = S.importSource;
+        ({custMap, skippedPayIds} = storeRowsToCustMap(rows, S.importSource));
       } else {
-        // 直播/一般格式
-        item.detectedFormat = "直播";
+        // 一般格式（直播或使用者指定的來源）
+        item.detectedFormat = S.importSource;
         if (item === S.fileQueue[0]) {
           // 只在第一個檔案偵測欄位
           const auto = autoDetectFields(hdrs);
           S.fm = auto; S.hdrs = hdrs;
         }
-        ({custMap, skippedPayIds} = rowsToCustMap(rows, S.fm));
+        ({custMap, skippedPayIds} = rowsToCustMap(rows, S.fm, S.importSource));
       }
       const {merged, added} = mergeCustMap(custMap);
       item.status = "done";
@@ -836,14 +839,30 @@ function renderImport() {
   // ── 步驟 1：欄位對應 ──────────────────────────────────────────
   if (S.batchStep===1) {
 
+    // 來源標記選擇器（共用元件）
+    const autoText = S.storeFormatDetected ? "🤖 自動偵測為門市格式" : "🤖 自動偵測為一般／直播格式";
+    const sourcePicker = `
+      <div style="padding:12px 14px;background:#fff;border:1px solid #eee;border-radius:10px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;color:#333;">這批資料的來源是</span>
+          <span style="font-size:11px;color:#aaa;">${autoText}</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          ${[["直播","📡 線上 / 直播"],["門市","🏪 實體門市"]].map(([s,l])=>`
+          <button class="src-pick" data-src="${s}" style="flex:1;padding:9px 12px;border-radius:8px;font-size:13px;cursor:pointer;border:1px solid ${S.importSource===s?"#185FA5":"#ddd"};background:${S.importSource===s?"#E6F1FB":"#fff"};color:${S.importSource===s?"#185FA5":"#555"};font-weight:${S.importSource===s?"600":"400"};">${l}</button>
+          `).join("")}
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:8px;">匯入後客戶名單會顯示這個來源標籤，方便篩選與分眾</div>
+      </div>`;
+
     // 門市格式：直接顯示確認畫面，不需欄位對應
     if (S.storeFormatDetected) {
       return `<div style="max-width:580px;">
         <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:14px;">📦 偵測到門市銷售格式</div>
+        ${sourcePicker}
         <div style="padding:14px 16px;background:#EAF3DE;border-radius:10px;border:1px solid #c6f6d5;margin-bottom:14px;">
           <div style="font-size:13px;font-weight:600;color:#276749;margin-bottom:8px;">✓ 自動辨識成功，無需手動設定欄位</div>
           <div style="font-size:12px;color:#555;line-height:1.9;">
-            • 來源自動標記為「<strong>門市</strong>」<br>
             • 客戶識別：客戶代號（POS+電話）<br>
             • 日期：民國年自動轉換<br>
             • 僅計入「P 銷」類型，退貨自動排除<br>
@@ -878,6 +897,7 @@ function renderImport() {
           <input type="file" id="fi2" accept=".xlsx,.xls,.csv" multiple style="display:none;">
         </button>
       </div>
+      ${sourcePicker}
       ${renderFileQueue()}
       <div style="padding:10px 14px;background:#fffbf0;border-radius:8px;border-left:3px solid #F59E0B;margin:14px 0;font-size:12px;color:#854F0B;">
         <strong>付款單號</strong>請對應原始付款單號欄位（如 PA26XXXX），系統用此欄去除重複商品
@@ -1738,6 +1758,7 @@ function bindEvents(pg,cl,cs,fl,tp) {
   // ── 欄位對應步驟 ──
   on("ib1", () => { S.batchStep=0; S.fileQueue=[]; S.hdrs=[]; render(); });
   document.querySelectorAll(".fsel").forEach(s => s.onchange=()=>{ S.fm[s.dataset.f]=s.value; });
+  document.querySelectorAll(".src-pick").forEach(b => b.onclick=()=>{ S.importSource=b.dataset.src; render(); });
   on("start-import", () => {
     document.querySelectorAll(".fsel").forEach(s=>{ S.fm[s.dataset.f]=s.value; });
     runBatchImport();
