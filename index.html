@@ -423,7 +423,7 @@ function storeRowsToCustMap(rows, sourceLabel) {
       if (!cc.payIds.has(payId)) {
         cc.payIds.add(payId);
         cc.totalAmt += rowAmt;
-        cc.payments[payId] = { date:rowDate, amount:0, address:"", items:[] };
+        cc.payments[payId] = { date:rowDate, amount:0, address:"", items:[], src };
       }
       cc.payments[payId].amount += rowAmt;
       if (goodsName) cc.payments[payId].items.push({name:goodsName, qty, unitPrice, amount:rowAmt});
@@ -523,7 +523,7 @@ function rowsToCustMap(rows, fm, sourceLabel) {
       if (!cc.payIds.has(payId)) {
         // 付款單第一次出現：建立記錄，amount 先設 0，後面逐筆累加
         cc.payIds.add(payId);
-        cc.payments[payId] = { date:rowDate, amount:0, address:rowAddress, items:[] };
+        cc.payments[payId] = { date:rowDate, amount:0, address:rowAddress, items:[], src };
       }
 
       // ★ 每一筆商品金額都累加到付款單總額 和 客戶總額
@@ -544,7 +544,7 @@ function rowsToCustMap(rows, fm, sourceLabel) {
         if (orderId) cc.orderIds.add(orderId);
         cc.totalAmt += rowAmt;
         const fakeKey = orderId || ("ord-"+Object.keys(cc.payments).length);
-        if (!cc.payments[fakeKey]) cc.payments[fakeKey] = { date:rowDate, amount:0, address:rowAddress, items:[] };
+        if (!cc.payments[fakeKey]) cc.payments[fakeKey] = { date:rowDate, amount:0, address:rowAddress, items:[], src };
         cc.payments[fakeKey].amount += rowAmt;
         if (goodsName) cc.payments[fakeKey].items.push({ name:goodsName, qty, unitPrice, amount:rowAmt });
       }
@@ -559,6 +559,30 @@ function rowsToCustMap(rows, fm, sourceLabel) {
     if (rowAddress) cc.address = rowAddress;
   });
   return { custMap, skippedPayIds };
+}
+
+// ── 來源以「付款明細」為準回推，而不是以最後一次匯入的批次標籤為準 ──────
+//   同一位客戶可能 46 筆線上 + 2 筆門市，只因為最後匯的是門市檔就整個被標成
+//   「門市」是錯的。這裡逐筆看明細出自哪一種來源，再依筆數多寡組標籤。
+const ONLINE_LEGACY = ["直播","FB","IG","LINE"];
+function inferSource(payDetails, fallback) {
+  const base = ONLINE_LEGACY.includes(fallback) ? fallback : "直播";
+  const cnt = {};
+  Object.entries(payDetails || {}).forEach(([pid, pd]) => {
+    let s = (pd && pd.src) || "";
+    if (!s) {
+      // 舊資料沒記來源 → 從付款單號格式回推
+      if (/^POS\d{8}-/.test(pid) || /^1\d{10}$/.test(pid)) s = "門市";   // POS 合成鍵／民國單據號
+      else if (/^PA/i.test(pid)) s = base;                                // 電商／直播訂單號
+    }
+    if (s) cnt[s] = (cnt[s] || 0) + 1;
+  });
+  // 固定排序（線上在前、門市在後），同一種組合永遠只會有一個標籤，篩選才不會被拆散
+  const ORDER = ["直播","FB","IG","LINE","門市"];
+  const rank = s => { const i = ORDER.indexOf(s); return i < 0 ? ORDER.length : i; };
+  const list = Object.keys(cnt).sort((a,b) => rank(a) - rank(b) || a.localeCompare(b));
+  if (!list.length) return fallback || "";
+  return list.length <= 3 ? list.join("+") : "多管道";
 }
 
 // ── 核心：合併一個 custMap 進 S.custs，同時更新全域已匯入付款單號 ──
@@ -606,16 +630,8 @@ function mergeCustMap(custMap) {
       if (!ex.fb && nc.fb) ex.fb = nc.fb;
       if (nc.fb) ex.fb = nc.fb; // 有新 fb 就更新
       if (!ex.address && nc.address) ex.address = nc.address;
-      if (ex.source && nc.source && ex.source!==nc.source) {
-        // 同一位客戶跨來源 → 攤平成看得懂的組合標籤（門市+直播、FB+直播…）
-        // 超過 3 種才退回「多管道」，避免標籤長到爆版
-        const srcs = [...String(ex.source).split("+"), ...String(nc.source).split("+")]
-          .map(x => x.trim()).filter(x => x && x !== "多管道");
-        const list = [...new Set(srcs)].sort();
-        ex.source = list.length === 0 ? "多管道"
-                  : list.length <= 3  ? list.join("+")
-                  : "多管道";
-      }
+      // 來源一律從付款明細重算（拿舊標籤當線上來源的判讀依據）
+      ex.source = inferSource(ex.payDetails, ex.source) || nc.source || ex.source;
       merged++;
     } else {
       // 新客戶：直接用 payDetails 計算正確的 amount 和 payments
@@ -629,7 +645,8 @@ function mergeCustMap(custMap) {
         amount:correctAmount,
         payments:correctPayments,
         orders: Math.max(pidList.reduce((s,pid)=>(newPayDetails[pid].items||[]).length?s+(newPayDetails[pid].items.length):s+1, 0), correctPayments),
-        source:nc.source, lastDate:nc.lastDate, firstDate:nc.firstDate,
+        source: inferSource(newPayDetails, nc.source) || nc.source,
+        lastDate:nc.lastDate, firstDate:nc.firstDate,
         address:nc.address||"",
         payDetails: newPayDetails,
       };
@@ -1085,12 +1102,14 @@ function renderClients(fl,pg,tp) {
     <details style="margin:-2px 0 8px;">
       <summary style="font-size:11px;color:#888;cursor:pointer;list-style:none;">來源標籤是什麼意思？</summary>
       <div style="font-size:11px;color:#888;line-height:1.9;padding:8px 10px;margin-top:4px;background:#F7F9FB;border-radius:6px;border:1px solid #eee;">
-        來源＝<b>這位客戶的消費資料是從哪一批檔案匯進來的</b>，在匯入時選定，不是客戶自己的屬性。<br>
-        <b>直播</b>：直播／電商訂單檔匯入　<b>門市</b>：門市 POS 匯出檔匯入<br>
-        <b>A+B（例如 門市+直播、FB+直播）</b>：同一支電話在兩、三批不同來源的檔案都出現過，系統自動合併成組合標籤<br>
-        <b>多管道</b>：<u>跨越三種以上來源</u>，或是<u>早期版本合併時留下、已無法回溯原始來源</u>的舊記錄<br>
-        <b>FB／IG／LINE</b>：早期依社群平台分類的舊標籤，現在新匯入不會再產生<br>
-        <span style="color:#a06020;">想統一舊標籤 → 到「匯入名單」頁最下方的「來源批次修正」。</span>
+        來源是<b>從這位客戶實際的每一筆付款明細回推</b>的，不是看最後一次匯入哪種檔案。<br>
+        <b>直播</b>：消費全部來自直播／電商訂單　<b>門市</b>：消費全部來自門市 POS<br>
+        <b>直播+門市</b>：兩邊都買過。線上在前、門市在後為固定寫法，<u>不代表哪邊買比較多</u>；<br>
+        <span style="padding-left:1em;">要看實際比重，點開客戶的「消費流水帳」逐筆看。</span><br>
+        <b>FB／IG／LINE</b>：早期依社群平台分類的舊標籤，線上消費會沿用它，新匯入不會再產生<br>
+        <b>多管道</b>：跨越三種以上來源。舊版曾把「任何無法歸類的合併」都塞進這個標籤，
+        已改成回推實際來源，正常情況不會再出現。<br>
+        <span style="color:#a06020;">舊資料標錯 → 到「匯入名單」頁按「修復資料」會依明細重算全部客戶的來源。</span>
       </div>
     </details>
     ${mb ? `
@@ -1373,6 +1392,10 @@ async function fixDuplicates() {
         c.orders   = Math.max(correctOrders, correctPayments);
         fixedCusts++;
       }
+
+      // 來源以付款明細為準重算（修掉「最後匯哪批就標成哪個來源」的錯標）
+      const inferred = inferSource(pds, c.source);
+      if (inferred && inferred !== c.source) { c.source = inferred; fixedCusts++; }
 
       // 修正 firstDate / lastDate
       const dates = pidList.map(pid => pds[pid].date||"").filter(Boolean).sort();
