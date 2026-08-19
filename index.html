@@ -161,6 +161,8 @@ let S = {
   storeFormatDetected: false,
   importSource: "直播",   // 來源標記："直播" | "門市"，會根據自動偵測調整、使用者可手動覆寫
   importedPayIds: new Set(),  // 已匯入的付款單號，防止重複累加
+  // 刪除指定匯入資料
+  delFrom:"", delTo:"", delSrc:"", delQuery:"", delPreview:null,
 };
 
 async function loadData() {
@@ -585,6 +587,60 @@ function inferSource(payDetails, fallback) {
   return list.length <= 3 ? list.join("+") : "多管道";
 }
 
+// ── 刪除指定匯入資料（日期區間／指定客戶）──────────────────────────
+//   門市訂單常有重複紀錄或退貨仍被認列，需要能把某一段期間或某一位客戶的
+//   消費明細整批撤掉，撤完連同付款單號一起從防呆清單移除，才能重新匯入。
+function payDetailSource(pid, pd) {
+  if (pd && pd.src) return pd.src;
+  if (/^POS\d{8}-/.test(pid) || /^1\d{10}$/.test(pid)) return "門市";
+  if (/^PA/i.test(pid)) return "直播";
+  return "";
+}
+function collectDeletions() {
+  const from = String(S.delFrom||"").replace(/-/g,"");
+  const to   = String(S.delTo||"").replace(/-/g,"");
+  const src  = S.delSrc||"";
+  const q    = String(S.delQuery||"").trim();
+  if (!from && !to && !q) return [];
+  const hits = [];
+  S.custs.forEach(c => {
+    if (q && !(String(c.name||"").includes(q) || String(c.phone||"").includes(q))) return;
+    Object.entries(c.payDetails||{}).forEach(([pid,pd]) => {
+      const d = String((pd&&pd.date)||"");
+      if (from && (!d || d < from)) return;
+      if (to   && (!d || d > to))   return;
+      if (src  && payDetailSource(pid,pd) !== src) return;
+      hits.push({ c, pid, amount: (pd&&pd.amount)||0, date: d });
+    });
+  });
+  return hits;
+}
+async function applyDeletions(hits) {
+  const touched = new Set();
+  hits.forEach(({c,pid}) => {
+    if (c.payDetails) delete c.payDetails[pid];
+    S.importedPayIds.delete(pid);
+    touched.add(c);
+  });
+  const removeIds = new Set();
+  touched.forEach(c => {
+    const pds = c.payDetails || {};
+    const pids = Object.keys(pds);
+    if (!pids.length) { removeIds.add(c.id); return; }
+    c.amount    = pids.reduce((s,p)=>s+(pds[p].amount||0),0);
+    c.payments  = pids.length;
+    c.orders    = Math.max(pids.reduce((s,p)=>s+((pds[p].items||[]).length||1),0), pids.length);
+    const ds    = pids.map(p=>pds[p].date||"").filter(Boolean).sort();
+    c.firstDate = ds[0] || "";
+    c.lastDate  = ds[ds.length-1] || "";
+    c.source    = inferSource(pds, c.source) || c.source;
+  });
+  if (removeIds.size) S.custs = S.custs.filter(c => !removeIds.has(c.id));
+  await savCustomers();
+  await saveImportedPayIds();
+  return { removedCusts: removeIds.size, removedPays: hits.length };
+}
+
 // ── 核心：合併一個 custMap 進 S.custs，同時更新全域已匯入付款單號 ──
 function mergeCustMap(custMap) {
   const phoneMap = {};
@@ -904,6 +960,37 @@ function renderImport() {
           來源標錯（例如線上客戶被標成門市）就按這顆。隨時可重複執行。
         </div>
         <button id="fix-all-btn" class="pbtn" style="font-size:12px;padding:6px 14px;">重算資料</button>
+      </div>
+
+      <div style="margin-top:12px;padding:12px 14px;background:#FFF8F7;border-radius:10px;border:1px solid #f3dcd8;">
+        <div style="font-size:13px;font-weight:600;color:#8B2E22;margin-bottom:4px;">刪除指定匯入資料</div>
+        <div style="font-size:11px;color:#a06055;line-height:1.8;margin-bottom:10px;">
+          撤掉某段期間或某位客戶的消費明細（門市重複紀錄、退貨誤認列用這個）。<br>
+          撤掉的付款單號會一併從防呆清單移除，之後可以重新匯入。<b>先按「預覽」看會刪掉什麼</b>。
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+          <input id="del-from" type="date" class="inp" value="${S.delFrom}" style="padding:5px 8px;font-size:12px;">
+          <span style="color:#bbb;font-size:12px;">—</span>
+          <input id="del-to" type="date" class="inp" value="${S.delTo}" style="padding:5px 8px;font-size:12px;">
+          <select id="del-src" class="sel" style="font-size:12px;padding:5px 8px;">
+            ${[["","全部來源"],["門市","只刪門市"],["直播","只刪線上"]].map(([v,l])=>`<option value="${v}"${S.delSrc===v?" selected":""}>${l}</option>`).join("")}
+          </select>
+          <input id="del-q" class="inp" placeholder="限定客戶（姓名或電話，可留空）" value="${S.delQuery}" style="flex:1;min-width:180px;padding:5px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button id="del-preview" class="sbtn" style="font-size:12px;padding:5px 12px;">預覽</button>
+          ${S.delPreview ? `<button id="del-apply" class="pbtn" style="background:#8B2E22;font-size:12px;padding:5px 12px;">確認刪除 ${S.delPreview.count} 筆</button>
+          <button id="del-cancel" class="sbtn" style="font-size:12px;padding:5px 12px;">取消</button>` : ""}
+        </div>
+        ${S.delPreview ? `
+        <div style="margin-top:10px;padding:10px 12px;background:#fff;border:1px solid #f0d8d4;border-radius:8px;font-size:12px;color:#555;line-height:1.9;">
+          符合條件：<b style="color:#8B2E22;">${S.delPreview.count}</b> 筆付款明細 ·
+          影響 <b>${S.delPreview.custs}</b> 位客戶 ·
+          金額合計 <b>NT$${Math.round(S.delPreview.amount).toLocaleString()}</b>
+          ${S.delPreview.emptied>0?`<br><span style="color:#8B2E22;">其中 ${S.delPreview.emptied} 位客戶會因為沒有剩餘明細而被整筆刪除</span>`:""}
+          ${S.delPreview.count===0?`<br><span style="color:#999;">沒有符合條件的資料，請調整日期或客戶條件</span>`:""}
+          ${S.delPreview.sample.length?`<div style="margin-top:6px;color:#999;">例如：${S.delPreview.sample.join("　")}</div>`:""}
+        </div>` : ""}
       </div>` : ""}
   </div>`;
 
@@ -1089,6 +1176,26 @@ function thPlain(label, w) {
   return `<th style="width:${w}px;background:#f8f8f8;padding:9px 10px;text-align:left;font-weight:500;font-size:12px;color:#999;border-bottom:1px solid #eee;">${label}</th>`;
 }
 
+// ── 消費金額級距（整理名單分眾用）────────────────────────────────────
+const AMT_BRACKETS = [
+  ["1萬以下",0,10000],   ["1-2萬",10000,20000],  ["2-3萬",20000,30000],
+  ["3-4萬",30000,40000], ["4-5萬",40000,50000],  ["5-6萬",50000,60000],
+  ["6-7萬",60000,70000], ["7-8萬",70000,80000],  ["8-9萬",80000,90000],
+  ["9-10萬",90000,100000],["10-20萬",100000,200000],["20萬以上",200000,Infinity],
+];
+function bracketStats(list) {
+  const srcs = [...new Set(list.map(c => c.source || "(未標記)"))].sort();
+  const grid = {}; srcs.forEach(s => grid[s] = AMT_BRACKETS.map(() => 0));
+  const totals = AMT_BRACKETS.map(() => 0);
+  list.forEach(c => {
+    const a = c.amount || 0;
+    const i = AMT_BRACKETS.findIndex(([, lo, hi]) => a >= lo && a < hi);
+    if (i < 0) return;
+    grid[c.source || "(未標記)"][i]++; totals[i]++;
+  });
+  return { srcs, grid, totals };
+}
+
 function renderClients(fl,pg,tp) {
   const sorted = sortClients(fl);
   const pgData = sorted.slice(S.pg*PS,(S.pg+1)*PS);
@@ -1100,6 +1207,12 @@ function renderClients(fl,pg,tp) {
   const srcOpts = [["","全部來源"]].concat(
     Object.keys(srcCount).sort((a,b)=>srcCount[b]-srcCount[a]).map(s=>[s, `${s}（${srcCount[s]}）`])
   );
+  // 級距統計（依目前篩選結果算）
+  const bs = bracketStats(fl);
+  const bsRows = AMT_BRACKETS.map((b,i)=>[b[0], ...bs.srcs.map(s=>bs.grid[s][i]), bs.totals[i]])
+                             .filter(r => r[r.length-1] > 0);
+  const bsTsv = ["消費金額\t"+bs.srcs.join("\t")+"\t合計"]
+                  .concat(bsRows.map(r=>r.join("\t"))).join("\n");
   return `<div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
       <input id="qs" class="inp" style="flex:1;min-width:${mb?'100%':'180px'};" placeholder="搜尋姓名、電話、FB..." value="${S.q}">
@@ -1123,7 +1236,7 @@ function renderClients(fl,pg,tp) {
     ${mb ? `
     <div style="margin-bottom:10px;">
       <div style="display:flex;gap:4px;margin-bottom:6px;">
-        ${[["1萬↓","0","10000"],["1-3萬","10000","30000"],["3-5萬","30000","50000"],["5萬↑","50000",""]].map(([l,mn,mx])=>{
+        ${[["1萬↓","0","10000"],["1-3萬","10000","30000"],["3-5萬","30000","50000"],["5-10萬","50000","100000"],["10-20萬","100000","200000"],["20萬↑","200000",""]].map(([l,mn,mx])=>{
           const active = S.fAmtMin===mn && S.fAmtMax===mx;
           return `<button class="amt-preset" data-min="${mn}" data-max="${mx}" style="flex:1;padding:7px 2px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${active?"#185FA5":"#ddd"};background:${active?"#E6F1FB":"#fff"};color:${active?"#185FA5":"#888"};">${l}</button>`;
         }).join("")}
@@ -1145,7 +1258,7 @@ function renderClients(fl,pg,tp) {
         <button id="amt-search" style="padding:6px 14px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500;">搜索</button>
         ${(S.fAmtMin||S.fAmtMax)?`<button id="clear-amt" style="padding:5px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;cursor:pointer;background:none;color:#888;">清除</button>`:""}
         <div style="display:flex;gap:4px;flex-wrap:wrap;">
-          ${[["1萬以下","0","10000"],["1-3萬","10000","30000"],["3-5萬","30000","50000"],["5萬以上","50000",""]].map(([l,mn,mx])=>{
+          ${[["1萬以下","0","10000"],["1-2萬","10000","20000"],["2-3萬","20000","30000"],["3-5萬","30000","50000"],["5-6萬","50000","60000"],["6-7萬","60000","70000"],["7-8萬","70000","80000"],["8-9萬","80000","90000"],["9-10萬","90000","100000"],["10-20萬","100000","200000"],["20萬以上","200000",""]].map(([l,mn,mx])=>{
             const active = S.fAmtMin===mn && S.fAmtMax===mx;
             return `<button class="amt-preset" data-min="${mn}" data-max="${mx}" style="padding:4px 9px;border-radius:6px;font-size:11px;cursor:pointer;white-space:nowrap;border:1px solid ${active?"#185FA5":"#ddd"};background:${active?"#E6F1FB":"none"};color:${active?"#185FA5":"#888"};">${l}</button>`;
           }).join("")}
@@ -1153,13 +1266,40 @@ function renderClients(fl,pg,tp) {
       </div>
     </div>`}
 
+    ${fl.length>0 && bsRows.length>0 ? `
+    <details style="margin-bottom:12px;">
+      <summary style="font-size:12px;color:#185FA5;cursor:pointer;font-weight:500;">📊 消費級距統計（目前篩選結果 ${fl.length} 位）</summary>
+      <div style="margin-top:8px;border:1px solid #e5e9ee;border-radius:10px;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:320px;">
+          <thead><tr>
+            <th style="background:#f8f8f8;padding:7px 10px;text-align:left;font-weight:500;color:#999;border-bottom:1px solid #eee;white-space:nowrap;">消費金額</th>
+            ${bs.srcs.map(s=>`<th style="background:#f8f8f8;padding:7px 10px;text-align:right;font-weight:500;color:#999;border-bottom:1px solid #eee;white-space:nowrap;">${s}</th>`).join("")}
+            <th style="background:#f8f8f8;padding:7px 10px;text-align:right;font-weight:600;color:#555;border-bottom:1px solid #eee;">合計</th>
+          </tr></thead>
+          <tbody>
+            ${bsRows.map(r=>`<tr>
+              <td style="padding:6px 10px;border-bottom:1px solid #f2f2f2;color:#555;white-space:nowrap;">${r[0]}</td>
+              ${r.slice(1,-1).map(v=>`<td style="padding:6px 10px;border-bottom:1px solid #f2f2f2;text-align:right;color:${v?"#333":"#ddd"};">${v}</td>`).join("")}
+              <td style="padding:6px 10px;border-bottom:1px solid #f2f2f2;text-align:right;font-weight:600;color:#185FA5;">${r[r.length-1]}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <button id="copy-brackets" class="sbtn" style="font-size:11px;padding:4px 10px;">複製表格</button>
+        <span style="font-size:11px;color:#bbb;">貼到 Excel／文件會自動分欄；只統計目前篩選出來的客戶</span>
+      </div>
+      <textarea id="bs-tsv" style="position:absolute;left:-9999px;top:-9999px;">${bsTsv}</textarea>
+    </details>` : ""}
+
     ${fl.length===0 ? `<div style="text-align:center;padding:3rem;color:#bbb;font-size:14px;">${S.custs.length===0?"尚未匯入資料，請點「匯入名單」":"沒有符合條件的客戶"}</div>` :
     mb ? `
     <div style="display:flex;flex-direction:column;gap:8px;">
-      ${pgData.map(c=>`
+      ${pgData.map((c,i)=>`
       <div class="cr" data-id="${c.id}" style="background:#fff;border-radius:10px;padding:12px 14px;border:1px solid #eee;cursor:pointer;-webkit-tap-highlight-color:transparent;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">
           <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;color:#ccc;font-variant-numeric:tabular-nums;">${S.pg*PS+i+1}</span>
             <span style="font-size:15px;font-weight:600;color:#185FA5;">${c.name}</span>
             ${gb(c.grade)}
           </div>
@@ -1182,6 +1322,7 @@ function renderClients(fl,pg,tp) {
     <div style="border:1px solid #eee;border-radius:10px;overflow:hidden;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;">
         <thead><tr>
+          ${thPlain("#",42)}
           ${thSort("姓名","name",80)}
           ${thPlain("FB帳號",85)}
           ${thSort("等級","grade",55)}
@@ -1194,7 +1335,8 @@ function renderClients(fl,pg,tp) {
           ${thPlain("狀態",60)}
           ${thPlain("操作",58)}
         </tr></thead>
-        <tbody>${pgData.map(c=>`<tr class="cr" data-id="${c.id}" style="cursor:pointer;">
+        <tbody>${pgData.map((c,i)=>`<tr class="cr" data-id="${c.id}" style="cursor:pointer;">
+          <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#bbb;font-variant-numeric:tabular-nums;">${S.pg*PS+i+1}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#185FA5;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.fb||"—"}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;">${gb(c.grade)}</td>
@@ -1924,7 +2066,50 @@ function bindEvents(pg,cl,cs,fl,tp) {
 
   // ── VIP 規則 ──
   on("sr", () => { const a=$("r-amt"),c=$("r-cnt"); if(a&&c){ S.rules={amt:parseInt(a.value)||5000,cnt:parseInt(c.value)||3}; savRules(); render(); } });
+  on("del-preview", () => {
+    S.delFrom  = $("del-from") ? $("del-from").value : S.delFrom;
+    S.delTo    = $("del-to")   ? $("del-to").value   : S.delTo;
+    S.delSrc   = $("del-src")  ? $("del-src").value  : S.delSrc;
+    S.delQuery = $("del-q")    ? $("del-q").value    : S.delQuery;
+    const hits = collectDeletions();
+    const byCust = new Map();
+    hits.forEach(h => { if(!byCust.has(h.c)) byCust.set(h.c, 0); byCust.set(h.c, byCust.get(h.c)+1); });
+    let emptied = 0;
+    byCust.forEach((n, c) => { if (Object.keys(c.payDetails||{}).length === n) emptied++; });
+    S.delPreview = {
+      count: hits.length,
+      custs: byCust.size,
+      amount: hits.reduce((s,h)=>s+h.amount, 0),
+      emptied,
+      sample: hits.slice(0,3).map(h=>`${h.c.name||h.c.phone}（${fmtD(h.date)} NT$${Math.round(h.amount).toLocaleString()}）`),
+    };
+    render();
+  });
+  on("del-cancel", () => { S.delPreview = null; render(); });
+  on("del-apply", () => {
+    const p = S.delPreview; if (!p || !p.count) return;
+    showConfirm(
+      "確認刪除",
+      `將刪除 ${p.count} 筆付款明細（NT$${Math.round(p.amount).toLocaleString()}），影響 ${p.custs} 位客戶`
+        + (p.emptied ? `，其中 ${p.emptied} 位會被整筆移除` : "")
+        + "。此動作無法還原。",
+      "確認刪除",
+      async () => {
+        const r = await applyDeletions(collectDeletions());
+        S.delPreview = null;
+        render();
+        showConfirm("刪除完成", `已移除 ${r.removedPays} 筆付款明細、${r.removedCusts} 位客戶，資料已同步儲存。`, "確認", ()=>{});
+      }
+    );
+  });
   on("scan-btn", () => render());
+  on("copy-brackets", () => {
+    const ta = $("bs-tsv"); if (!ta) return;
+    const done = () => { const b=$("copy-brackets"); if(b){ b.textContent="已複製 ✓"; setTimeout(()=>{ if($("copy-brackets")) $("copy-brackets").textContent="複製表格"; },1500); } };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(done).catch(()=>{ ta.select(); document.execCommand("copy"); done(); });
+    } else { ta.select(); document.execCommand("copy"); done(); }
+  });
   // 來源批次修正
   document.querySelectorAll(".src-fix-btn").forEach(b => b.onclick = async () => {
     const from = b.dataset.from;
