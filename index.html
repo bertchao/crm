@@ -349,7 +349,9 @@ function readFileToRows(file) {
             const ws = wb.Sheets[wb.SheetNames[0]];
             rows = XLSX.utils.sheet_to_json(ws, {defval:""});
             hdrs = rows.length>0 ? Object.keys(rows[0]) : [];
-            resolve({rows, hdrs, storeFormat: false});
+            // POS／經銷對帳匯出：單一工作表、無「單據號碼」，但有「建檔時間」＋「客戶代號」
+            const posFormat = hdrs.some(x=>x.includes("建檔時間")) && hdrs.some(x=>x.includes("客戶代號"));
+            resolve({rows, hdrs, storeFormat: false, posFormat});
           }
         }
       } catch(err) { reject(err); }
@@ -359,14 +361,28 @@ function readFileToRows(file) {
   });
 }
 
-// 民國日期轉西元（114.09.08 → 20250908）
-function rocToAD(s) {
-  if (!s) return "";
-  const m = String(s).match(/^(\d{2,3})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);
-  if (!m) return String(s).replace(/-/g,"").slice(0,8);
-  const y = parseInt(m[1]) + 1911;
-  return `${y}${m[2].padStart(2,"0")}${m[3].padStart(2,"0")}`;
+// 日期正規化 → 一律回 YYYYMMDD（8 碼）或 ""
+// 支援：民國 114.09.08 / 西元 2026-04-22 / 2026/8/1 下午 01:05:27 / 20260422 / Date 物件 / Excel 序列值
+function normDate(s) {
+  if (s === null || s === undefined || s === "") return "";
+  const pad = n => String(n).padStart(2, "0");
+  if (s instanceof Date && !isNaN(s)) return `${s.getFullYear()}${pad(s.getMonth()+1)}${pad(s.getDate())}`;
+  if (typeof s === "number" && s > 20000 && s < 80000) {          // Excel 日期序列值
+    const d = new Date(Date.UTC(1899,11,30) + Math.floor(s)*86400000);
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}`;
+  }
+  const str  = String(s).trim();
+  const head = str.split(/[\sT]/)[0];                             // 切掉時間與上午/下午
+  let m = head.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);  // 西元 2026/8/1
+  if (m) return `${m[1]}${pad(m[2])}${pad(m[3])}`;
+  m = head.match(/^(\d{2,3})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);    // 民國 114.09.08
+  if (m) return `${parseInt(m[1],10)+1911}${pad(m[2])}${pad(m[3])}`;
+  if (/^\d{8,}$/.test(head)) return head.slice(0,8);              // 20260422
+  return "";
 }
+
+// 民國日期轉西元（114.09.08 → 20250908）— 保留舊名，統一走 normDate
+function rocToAD(s) { return normDate(s); }
 
 // 門市資料專用解析：rows 來自「明細」工作表
 function storeRowsToCustMap(rows, sourceLabel) {
@@ -425,18 +441,18 @@ function storeRowsToCustMap(rows, sourceLabel) {
 // ── 自動猜測欄位 ────────────────────────────────────────────────────
 function autoDetectFields(hdrs) {
   const auto = {
-    name:["收件人","姓名","客戶姓名","name"],
-    phone:["聯絡電話","電話","手機","phone"],
-    amount:["總金額","消費金額","金額","amount","消費總額"],
-    payments:["付款單號","付款單數","payments"],
+    name:["收件人","姓名","客戶姓名","客戶名稱","買家姓名","name"],
+    phone:["聯絡電話","行動電話","電話","手機","phone"],
+    amount:["總金額","消費金額","金額","實際銷售小計","銷售小計","小計","amount","消費總額"],
+    payments:["付款單號","付款單數","單據號碼","payments"],
     orders:["訂單編號","訂單數","orders"],
     source:["入單來源","來源","source"],
-    lastDate:["下單日期","最後消費日","lastDate"],
+    lastDate:["下單日期","最後消費日","建檔時間","交易時間","銷售日期","消費日期","日期","lastDate"],
     firstDate:["首次消費日","firstDate"],
     fb:["FB帳號","FB","facebook","買家名稱","社群帳號","fb帳號","臉書"],
-    goodsName:["商品名稱","商品","品名","goodsName","product"],
-    qty:["數量","qty","quantity"],
-    unitPrice:["單價","unitPrice","price"],
+    goodsName:["商品名稱","產品名稱","商品","品名","goodsName","product"],
+    qty:["數量","實際數量","qty","quantity"],
+    unitPrice:["單價","實際銷貨價","銷貨價","unitPrice","price"],
     address:["寄送地址","地址","收件地址","address"],
   };
   const mp = {};
@@ -450,6 +466,8 @@ function autoDetectFields(hdrs) {
 // ── 把 rows 彙整成客戶 Map ─────────────────────────────────────────
 function rowsToCustMap(rows, fm, sourceLabel) {
   const src = sourceLabel || "直播";
+  // POS／門市匯出裡代表「無記名現場交易」的匯總戶，不是真實客戶 → 不建檔
+  const AGGREGATE_NAMES = ["POS門市","現場客","一般客戶","散客","現場銷售"];
   const custMap = {};
   let skippedPayIds = 0;  // 因全域去重跳過的付款單數
 
@@ -457,6 +475,7 @@ function rowsToCustMap(rows, fm, sourceLabel) {
     const name  = String(r[fm.name]||"").trim();
     const phone = String(r[fm.phone]||"").trim();
     if (!name && !phone) return;
+    if (!phone && AGGREGATE_NAMES.includes(name)) return;
     const key = phone || name;
     if (!custMap[key]) custMap[key] = {
       name, phone,
@@ -471,10 +490,19 @@ function rowsToCustMap(rows, fm, sourceLabel) {
     };
     const cc = custMap[key];
     const rowAddress = fm.address && r[fm.address] ? String(r[fm.address]).trim() : "";
-    const payId    = String(r[fm.payments]||"").trim();
+    let   payId    = String(r[fm.payments]||"").trim();
     const orderId  = String(r[fm.orders]||"").trim();
     const rowAmt   = parseFloat(r[fm.amount])||0;
-    const rowDate  = String(r[fm.lastDate]||"").replace(/-/g,"").slice(0,8);
+    const rawDate  = fm.lastDate ? r[fm.lastDate] : "";
+    const rowDate  = normDate(rawDate);
+    // 來源沒有單據號碼時（例如 POS 匯出）：用「日期＋時間＋客戶」合成去重鍵。
+    // 同一次交易的多項商品會落在同一組付款單；同一份檔重複匯入也不會重複累加金額。
+    if ((!payId || payId.length <= 3) && rowDate) {
+      const rawStr = String(rawDate);
+      const ap     = /下午|PM/i.test(rawStr) ? "P" : "A";
+      const tdig   = (rawStr.match(/\d+/g) || []).join("").slice(-6);
+      payId = `POS${rowDate}-${ap}${tdig}-${phone || name}`;
+    }
     const goodsName= fm.goodsName ? String(r[fm.goodsName]||"").trim() : "";
     const qty      = fm.qty ? parseInt(r[fm.qty])||1 : 1;
     const unitPrice= fm.unitPrice ? parseFloat(r[fm.unitPrice])||0 : 0;
@@ -523,8 +551,8 @@ function rowsToCustMap(rows, fm, sourceLabel) {
     }
     if (orderId) cc.orderIds.add(orderId);
 
-    const d  = String(r[fm.lastDate]||"").replace(/-/g,"").slice(0,8);
-    const fd = String(r[fm.firstDate]||r[fm.lastDate]||"").replace(/-/g,"").slice(0,8);
+    const d  = rowDate;
+    const fd = normDate(r[fm.firstDate] || rawDate);
     if (d  && (!cc.lastDate ||d >cc.lastDate )) cc.lastDate  = d;
     if (fd && (!cc.firstDate||fd<cc.firstDate)) cc.firstDate = fd;
     if (!cc.fb && r[fm.fb]) cc.fb = String(r[fm.fb]);
@@ -549,14 +577,26 @@ function mergeCustMap(custMap) {
 
       // 合併 payDetails（以付款單號為 key，不覆蓋已有的）
       if (!ex.payDetails) ex.payDetails = {};
+
+      // ★ 自我修復：清掉舊版失敗匯入留下的空殼明細（ord-N、金額 0、無日期）
+      //   成因是欄位沒對應到 → 金額與日期讀成空，留著只會灌水付款筆數
+      Object.keys(ex.payDetails).forEach(pid => {
+        const pd = ex.payDetails[pid] || {};
+        if (pid.startsWith("ord-") && !(pd.amount > 0) && !pd.date) delete ex.payDetails[pid];
+      });
+
       Object.entries(newPayDetails).forEach(([pid, pd]) => {
         if (!ex.payDetails[pid]) ex.payDetails[pid] = pd;
       });
+
+      // ★ 自我修復：舊記錄姓名空白時用新資料補回
+      if (!String(ex.name||"").trim() && nc.name) ex.name = nc.name;
 
       // ★ 重算：以 payDetails 為唯一真相，重新計算 amount 和 payments
       const pidList = Object.keys(ex.payDetails);
       ex.amount   = pidList.reduce((s, pid) => s + (ex.payDetails[pid].amount||0), 0);
       ex.payments = pidList.length;
+      ex.orders   = Math.max(pidList.reduce((s,pid)=>s+((ex.payDetails[pid].items||[]).length||1),0), pidList.length);
 
       // 更新日期
       if (nc.lastDate  && (!ex.lastDate ||nc.lastDate >ex.lastDate )) ex.lastDate  = nc.lastDate;
@@ -567,10 +607,14 @@ function mergeCustMap(custMap) {
       if (nc.fb) ex.fb = nc.fb; // 有新 fb 就更新
       if (!ex.address && nc.address) ex.address = nc.address;
       if (ex.source && nc.source && ex.source!==nc.source) {
-        // 直播 + 門市 合併
-        const srcs = new Set([ex.source, nc.source]);
-        if (srcs.has("門市") && srcs.has("直播")) ex.source = "門市+直播";
-        else ex.source = "多管道";
+        // 同一位客戶跨來源 → 攤平成看得懂的組合標籤（門市+直播、FB+直播…）
+        // 超過 3 種才退回「多管道」，避免標籤長到爆版
+        const srcs = [...String(ex.source).split("+"), ...String(nc.source).split("+")]
+          .map(x => x.trim()).filter(x => x && x !== "多管道");
+        const list = [...new Set(srcs)].sort();
+        ex.source = list.length === 0 ? "多管道"
+                  : list.length <= 3  ? list.join("+")
+                  : "多管道";
       }
       merged++;
     } else {
@@ -616,7 +660,7 @@ function addFilesToQueue(files) {
 async function readFirstHeaders() {
   const first = S.fileQueue[0];
   try {
-    const {hdrs, storeFormat} = await readFileToRows(first.file);
+    const {hdrs, storeFormat, posFormat} = await readFileToRows(first.file);
     if (storeFormat) {
       first.detectedFormat = "門市";
       S.batchStep = 1;
@@ -628,7 +672,9 @@ async function readFirstHeaders() {
       S.fm = autoDetectFields(hdrs);
       S.storeFormatDetected = false;
       S.batchStep = 1;
-      S.importSource = "直播";    // 一般格式 → 預設直播
+      // POS 匯出 → 預設門市；其餘一般格式 → 預設直播
+      S.importSource = posFormat ? "門市" : "直播";
+      if (posFormat) first.detectedFormat = "門市 POS";
     }
     render();
   } catch(e) {
@@ -1023,13 +1069,30 @@ function renderClients(fl,pg,tp) {
   const pgData = sorted.slice(S.pg*PS,(S.pg+1)*PS);
   const sel=(id,val,opts)=>`<select id="${id}" class="sel" style="font-size:13px;">${opts.map(([v,l])=>`<option value="${v}"${val===v?" selected":""}>${l}</option>`).join("")}</select>`;
   const mb = isMobile();
+  // 來源下拉直接從實際資料長出來（含筆數），避免資料裡有的值在篩選器裡找不到
+  const srcCount = {};
+  S.custs.forEach(c => { if (c.source) srcCount[c.source] = (srcCount[c.source]||0)+1; });
+  const srcOpts = [["","全部來源"]].concat(
+    Object.keys(srcCount).sort((a,b)=>srcCount[b]-srcCount[a]).map(s=>[s, `${s}（${srcCount[s]}）`])
+  );
   return `<div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
       <input id="qs" class="inp" style="flex:1;min-width:${mb?'100%':'180px'};" placeholder="搜尋姓名、電話、FB..." value="${S.q}">
-      ${sel("f-src",S.fSrc,[["","全部來源"],["直播","直播"],["門市","門市"],["門市+直播","門市+直播"]])}
+      ${sel("f-src",S.fSrc,srcOpts)}
       ${sel("f-grade",S.fGrade,[["","全部等級"],["VIP","VIP"],["一般","一般"],["新客","新客"]])}
       ${sel("f-status",S.fStatus,[["","全部狀態"],["待跟進","待跟進"],["已指派","已指派"],["已完成","已完成"]])}
     </div>
+    <details style="margin:-2px 0 8px;">
+      <summary style="font-size:11px;color:#888;cursor:pointer;list-style:none;">來源標籤是什麼意思？</summary>
+      <div style="font-size:11px;color:#888;line-height:1.9;padding:8px 10px;margin-top:4px;background:#F7F9FB;border-radius:6px;border:1px solid #eee;">
+        來源＝<b>這位客戶的消費資料是從哪一批檔案匯進來的</b>，在匯入時選定，不是客戶自己的屬性。<br>
+        <b>直播</b>：直播／電商訂單檔匯入　<b>門市</b>：門市 POS 匯出檔匯入<br>
+        <b>A+B（例如 門市+直播、FB+直播）</b>：同一支電話在兩、三批不同來源的檔案都出現過，系統自動合併成組合標籤<br>
+        <b>多管道</b>：<u>跨越三種以上來源</u>，或是<u>早期版本合併時留下、已無法回溯原始來源</u>的舊記錄<br>
+        <b>FB／IG／LINE</b>：早期依社群平台分類的舊標籤，現在新匯入不會再產生<br>
+        <span style="color:#a06020;">想統一舊標籤 → 到「匯入名單」頁最下方的「來源批次修正」。</span>
+      </div>
+    </details>
     ${mb ? `
     <div style="margin-bottom:10px;">
       <div style="display:flex;gap:4px;margin-bottom:6px;">
@@ -1095,7 +1158,7 @@ function renderClients(fl,pg,tp) {
           ${thSort("姓名","name",80)}
           ${thPlain("FB帳號",85)}
           ${thSort("等級","grade",55)}
-          ${thPlain("來源",55)}
+          ${thPlain("來源",92)}
           ${thSort("消費總額","amount",80)}
           ${thSort("付款","payments",45)}
           ${thPlain("負責人",70)}
@@ -1108,7 +1171,7 @@ function renderClients(fl,pg,tp) {
           <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#185FA5;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.fb||"—"}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;">${gb(c.grade)}</td>
-          <td style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.source}</td>
+          <td title="${c.source||""}" style="padding:9px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.source}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#333;font-weight:500;">NT$${Math.round(c.amount).toLocaleString()}</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;color:#333;">${c.payments}筆</td>
           <td style="padding:9px 10px;border-bottom:1px solid #eee;">${c.staff?`<div style="display:flex;align-items:center;gap:4px;">${av(c.staff,STAFF.indexOf(c.staff),24)}<span style="font-size:12px;color:#555;">${c.staff}</span></div>`:`<span style="font-size:12px;color:#ccc;">未指派</span>`}</td>
@@ -1504,7 +1567,7 @@ function renderDetail(c) {
           <div>
             <label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">來源</label>
             <select id="ef-source" class="sel" style="width:100%;">
-              ${["直播","門市","門市+直播","其他"].map(s=>`<option value="${s}"${(ef.source||c.source)===s?" selected":""}>${s}</option>`).join("")}
+              ${[...new Set(["直播","門市","門市+直播","多管道","其他", ef.source||c.source||""].filter(Boolean))].map(s=>`<option value="${s}"${(ef.source||c.source)===s?" selected":""}>${s}</option>`).join("")}
             </select>
           </div>
           <div>
