@@ -896,6 +896,14 @@ function renderImport() {
       </div>
       <div style="margin-top:6px;padding:8px 14px;background:#f8f8f8;border-radius:8px;font-size:12px;color:#888;display:flex;align-items:center;gap:6px;">
         <span>🛡 防呆機制已記錄 <strong style="color:#333;">${S.importedPayIds.size.toLocaleString()}</strong> 筆付款單號，重複上傳會自動略過</span>
+      </div>
+      <div style="margin-top:14px;padding:12px 14px;background:#F7F9FB;border-radius:10px;border:1px solid #e5e9ee;">
+        <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:4px;">依付款明細重算全部客戶</div>
+        <div style="font-size:11px;color:#888;line-height:1.8;margin-bottom:10px;">
+          以每位客戶的消費明細為唯一真相，重新計算<b>消費總額、付款筆數、首末消費日</b>，並<b>回推來源標籤</b>（門市／直播／直播+門市）。<br>
+          來源標錯（例如線上客戶被標成門市）就按這顆。隨時可重複執行。
+        </div>
+        <button id="fix-all-btn" class="pbtn" style="font-size:12px;padding:6px 14px;">重算資料</button>
       </div>` : ""}
   </div>`;
 
