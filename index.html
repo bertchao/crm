@@ -887,7 +887,7 @@ function renderImport() {
         ✓ 以<strong>電話號碼</strong>識別同一客戶，跨檔案自動對應<br>
         ✓ 同一<strong>付款單號</strong>的多筆商品只算一次付款<br>
         ✓ 消費金額、付款筆數跨月份<strong>累加</strong>，不覆蓋<br>
-        ✓ 同一客戶出現在多個來源自動標記「多管道」
+        ✓ 來源依付款明細回推：只有門市／只有線上就標該來源，兩邊都買過才標「直播+門市」
       </div>
     </div>
     ${S.custs.length>0 ? `
@@ -1496,6 +1496,16 @@ function renderVIP() {
         </div>
       </div>`}
 
+      <div style="padding:12px 14px;background:#F7F9FB;border-radius:10px;border:1px solid #e5e9ee;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:4px;">依付款明細重算全部客戶</div>
+        <div style="font-size:11px;color:#888;line-height:1.8;margin-bottom:10px;">
+          以每位客戶的消費明細為唯一真相，重新計算<b>消費總額、付款筆數、首末消費日</b>，
+          並<b>回推來源標籤</b>（門市／直播／直播+門市）。<br>
+          來源標錯（例如線上客戶被標成門市）就按這顆。隨時可重複執行。
+        </div>
+        <button id="fix-all-btn" class="pbtn" style="font-size:12px;padding:6px 14px;">重算資料</button>
+      </div>
+
       <button id="scan-btn" class="sbtn" style="font-size:12px;">重新掃描</button>
     </div>
 
@@ -1946,16 +1956,18 @@ function bindEvents(pg,cl,cs,fl,tp) {
     }
     render();
   }); // 重新掃描就是重新 render
-  on("fix-dup-btn", async () => {
+  const runRecalc = async () => {
     const n = await fixDuplicates();
     showConfirm(
-      n > 0 ? "修復完成" : "資料正常",
-      n > 0 ? `共修正 ${n} 位客戶的付款筆數和消費金額，資料已同步儲存。` : "資料已是最新狀態，無需修復。",
+      n > 0 ? "重算完成" : "資料正常",
+      n > 0 ? `共修正 ${n} 位客戶的金額、付款筆數或來源標籤，資料已同步儲存。` : "資料已是最新狀態，無需修復。",
       "確認",
       () => {}
     );
     render();
-  });
+  };
+  on("fix-dup-btn", runRecalc);
+  on("fix-all-btn", runRecalc);
   on("reset-pids-btn", () => {
     showConfirm(
       "重置付款單記錄",
